@@ -1,0 +1,152 @@
+# Langfuse on kind (platform Postgres and SeaweedFS); secrets come from deploy-langfuse.sh so refreshes don't change them.
+langfuse:
+  logging: {level: info, format: json}
+  salt:
+    secretKeyRef: {name: langfuse-secrets, key: SALT}
+  encryptionKey:
+    secretKeyRef: {name: langfuse-secrets, key: ENCRYPTION_KEY}
+  nextauth:
+    url: http://localhost:3001          # make local-ports forwards the UI here
+    secret:
+      secretKeyRef: {name: langfuse-secrets, key: NEXTAUTH_SECRET}
+  features:
+    telemetryEnabled: false
+    signUpDisabled: true
+  image:
+    pullPolicy: IfNotPresent
+  # Headless first start: organization, project, API keys and admin user, from the same Secret.
+  additionalEnv:
+    - {name: LANGFUSE_INIT_ORG_ID, value: lakehouse}
+    - {name: LANGFUSE_INIT_ORG_NAME, value: Lakehouse}
+    - {name: LANGFUSE_INIT_PROJECT_ID, value: ops-agent}
+    - {name: LANGFUSE_INIT_PROJECT_NAME, value: Ops agent}
+    - {name: LANGFUSE_INIT_USER_EMAIL, value: admin@lakehouse.local}
+    - {name: LANGFUSE_INIT_USER_NAME, value: admin}
+    - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+      valueFrom: {secretKeyRef: {name: langfuse-secrets, key: PUBLIC_KEY}}
+    - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+      valueFrom: {secretKeyRef: {name: langfuse-secrets, key: SECRET_KEY}}
+    - name: LANGFUSE_INIT_USER_PASSWORD
+      valueFrom: {secretKeyRef: {name: langfuse-secrets, key: ADMIN_PASSWORD}}
+  web:
+    # At 1 GiB the derived Node heap ran out during start-up, so the heap is set explicitly below the limit.
+    pod:
+      additionalEnv:
+        - {name: NODE_OPTIONS, value: "--max-old-space-size=1536"}
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits: {memory: 2Gi}
+  worker:
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 768Mi}
+
+postgresql:
+  deploy: false
+  host: postgres.data.svc
+  port: 5432
+  auth:
+    username: platform
+    existingSecret: postgres-credentials        # copied from data/ by deploy-langfuse.sh
+    secretKeys:
+      userPasswordKey: POSTGRES_PASSWORD
+    database: langfuse
+
+redis:
+  deploy: true
+  auth:
+    enabled: true
+    username: default
+    existingSecret: langfuse-redis-auth
+    existingSecretPasswordKey: default
+    usersExistingSecret: langfuse-redis-auth   # Valkey's ACL users (key = user name)
+    aclUsers:
+      default:
+        permissions: "~* &* +@all"
+  primary:
+    resources:
+      requests: {cpu: 25m, memory: 64Mi}
+      limits: {memory: 256Mi}
+
+s3:
+  deploy: false
+  bucket: langfuse
+  region: us-east-1
+  endpoint: http://s3.data.svc:8333
+  forcePathStyle: true
+  accessKeyId:
+    secretKeyRef: {name: s3-credentials, key: AWS_ACCESS_KEY_ID}
+  secretAccessKey:
+    secretKeyRef: {name: s3-credentials, key: AWS_SECRET_ACCESS_KEY}
+
+clickhouse:
+  deploy: false
+  host: clickhouse.langfuse.svc
+  httpPort: 8123
+  nativePort: 9000
+  database: default
+  crdCheck: false
+  auth:
+    username: default
+    existingSecret: langfuse-secrets
+    existingSecretKey: CLICKHOUSE_PASSWORD
+  migration:
+    url: clickhouse://clickhouse.langfuse.svc:9000
+    ssl: false
+    autoMigrate: true
+  cluster:
+    enabled: false          # one ClickHouse server, no ON CLUSTER DDL
+
+extraManifests:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: clickhouse
+      labels: {app: clickhouse}
+    spec:
+      selector: {app: clickhouse}
+      ports:
+        - {name: http, port: 8123}
+        - {name: native, port: 9000}
+  - apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: clickhouse
+      labels: {app: clickhouse}
+    spec:
+      serviceName: clickhouse
+      replicas: 1
+      selector:
+        matchLabels: {app: clickhouse}
+      template:
+        metadata:
+          labels: {app: clickhouse}
+        spec:
+          securityContext: {runAsNonRoot: true, runAsUser: 101, runAsGroup: 101, fsGroup: 101,
+                            seccompProfile: {type: RuntimeDefault}}
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:26.4.4
+              env:
+                - {name: CLICKHOUSE_USER, value: default}
+                - {name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT, value: "1"}
+                - name: CLICKHOUSE_PASSWORD
+                  valueFrom: {secretKeyRef: {name: langfuse-secrets, key: CLICKHOUSE_PASSWORD}}
+              ports:
+                - {name: http, containerPort: 8123}
+                - {name: native, containerPort: 9000}
+              readinessProbe:
+                httpGet: {path: /ping, port: http}
+                periodSeconds: 10
+              resources:
+                requests: {cpu: 100m, memory: 512Mi}
+                limits: {memory: 1536Mi}
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+              volumeMounts:
+                - {name: data, mountPath: /var/lib/clickhouse}
+      volumeClaimTemplates:
+        - metadata: {name: data}
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests: {storage: 5Gi}

@@ -1,0 +1,98 @@
+{{- if .Values.adminToolbox.enabled }}
+{{- $ctx := dict "root" $ "name" "kafka-admin" -}}
+# Kafka CLI as kafka-admin: kubectl -n kafka exec -i deploy/kafka-admin -- kafka-cli kafka-topics.sh --list
+# Settings are written at start-up from the mounted secrets; restart after a certificate renewal.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-admin-scripts
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.stableLabels" $ctx | nindent 4 }}
+data:
+  start.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    umask 077
+    cat > /tmp/client.properties <<EOF
+    security.protocol=SSL
+    ssl.keystore.type=PKCS12
+    ssl.keystore.location=/etc/kafka-admin/user/user.p12
+    ssl.keystore.password=$(cat /etc/kafka-admin/user/user.password)
+    ssl.truststore.type=PKCS12
+    ssl.truststore.location=/etc/kafka-admin/ca/ca.p12
+    ssl.truststore.password=$(cat /etc/kafka-admin/ca/ca.password)
+    EOF
+    exec sleep infinity
+  kafka-cli: |
+    #!/bin/bash
+    # kafka-cli <tool.sh> [args...]: runs a Kafka CLI tool against the cluster as kafka-admin.
+    tool="$1"; shift
+    case "${tool}" in
+      kafka-console-producer.sh) config=--producer.config ;;
+      kafka-console-consumer.sh) config=--consumer.config ;;
+      *)                         config=--command-config ;;
+    esac
+    exec "/opt/kafka/bin/${tool}" --bootstrap-server "${BOOTSTRAP_SERVERS}" "${config}" /tmp/client.properties "$@"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-admin
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.stableLabels" $ctx | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lakehouse.stableLabels" $ctx | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "lakehouse.podSecurityContext" (dict "uid" 1001) | nindent 8 }}
+      containers:
+        - name: kafka-admin
+          image: {{ .Values.adminToolbox.image }}
+          command: ["/bin/bash", "/opt/kafka-admin/start.sh"]
+          env:
+            - name: BOOTSTRAP_SERVERS
+              value: {{ printf "%s-kafka-bootstrap.%s.svc:9093" .Values.clusterName .Values.namespace | quote }}
+            - name: PATH
+              value: /opt/kafka-admin/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            - name: LOG_DIR             # kafka-run-class.sh writes here; the root filesystem is read-only
+              value: /tmp/logs
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits: {memory: 768Mi}
+          securityContext:
+            {{- include "lakehouse.containerSecurityContext" $ctx | nindent 12 }}
+          volumeMounts:
+            - {name: scripts, mountPath: /opt/kafka-admin/start.sh, subPath: start.sh}
+            - {name: cli, mountPath: /opt/kafka-admin/bin}
+            - {name: user, mountPath: /etc/kafka-admin/user, readOnly: true}
+            - {name: ca, mountPath: /etc/kafka-admin/ca, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: scripts
+          configMap:
+            name: kafka-admin-scripts
+        - name: cli
+          configMap:
+            name: kafka-admin-scripts
+            defaultMode: 0555
+            items:
+              - {key: kafka-cli, path: kafka-cli}
+        - name: user
+          secret:
+            secretName: kafka-admin
+        - name: ca
+          secret:
+            secretName: {{ .Values.clusterName }}-cluster-ca-cert
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+{{- end }}

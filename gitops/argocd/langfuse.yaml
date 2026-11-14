@@ -1,0 +1,53 @@
+# Langfuse (the ops agent's LLM tracing), local clusters only.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: langfuse
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  ignoreApplicationDifferences:
+    - jsonPointers: [/spec/syncPolicy]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            lakehouse.io/managed: "true"
+            lakehouse.io/env-group: local
+  template:
+    metadata:
+      name: 'langfuse-{{ index .metadata.labels "lakehouse.io/env" }}'
+      labels:
+        lakehouse.io/layer: operators
+        lakehouse.io/env: '{{ index .metadata.labels "lakehouse.io/env" }}'
+    spec:
+      project: platform-operators
+      sources:
+        - repoURL: https://langfuse.github.io/langfuse-k8s
+          chart: langfuse
+          targetRevision: 2.1.5
+          helm:
+            releaseName: langfuse
+            valueFiles:
+              - $values/gitops/operators/langfuse/local.yaml
+        - repoURL: http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: langfuse
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}

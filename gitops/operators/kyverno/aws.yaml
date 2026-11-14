@@ -1,0 +1,47 @@
+# Three admission controllers: with Enforce policies a down Kyverno blocks pod creation, so it must survive a node loss.
+admissionController:
+  serviceMonitor:
+    enabled: true          # admission latency, policy results
+  replicas: 3
+  container:
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 512Mi}
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [""]
+          resources: [secrets]
+          verbs: [get, list, watch]
+
+backgroundController:
+  serviceMonitor:
+    enabled: true          # generate/sync requests (Kafka certificate copies)
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [""]
+          resources: [secrets]
+          verbs: [get, list, watch, create, update, patch, delete]
+
+reportsController:
+  serviceMonitor:
+    enabled: true
+  # Reads the resources the policies match (secrets, for the generating policy) to report on them.
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [""]
+          resources: [secrets]
+          verbs: [get, list, watch]
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+cleanupController:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 128Mi}

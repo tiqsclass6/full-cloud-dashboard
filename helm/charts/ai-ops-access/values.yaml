@@ -1,0 +1,19 @@
+# The ops agent's RBAC, in its own Argo CD project; names must match ai-ops/values.yaml and ops_agent/catalog.py.
+namespace: ai-ops
+
+serviceAccounts:
+  mcp: mcp-platform-tools      # read-only tools
+  control: ops-control         # executes approved actions
+  # ops-agent gets nothing: it only calls the model, the tools and ops-control over HTTP.
+
+# Namespaces whose pods, logs, events and platform resources the tools may read.
+readNamespaces: [apps, data, kafka, ai-ops, observability, monitoring, argocd, flink-operator, spark-operator]
+# Namespaces where an approved restart_pod may delete a pod.
+restartNamespaces: [apps, kafka, data]
+flink: {namespace: apps, deployment: events-to-iceberg}
+sparkNamespace: apps
+# The schedules a compaction run is copied from (COMPACTION_SCHEDULES in ops_agent/catalog.py).
+compactionSchedules: [events-compaction]
+
+global:
+  environment: local      # set per cluster by the ApplicationSet

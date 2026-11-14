@@ -1,0 +1,64 @@
+# prod on AWS: applied after values/aws.yaml.
+global:
+  environment: prod
+  imageTag: "0.1.0"
+
+kafka-cluster:
+  nodePools:
+    - name: controllers
+      replicas: 3
+      roles: [controller]
+      storage: {size: 20Gi, storageClass: gp3, kraftMetadata: shared}
+      resources:
+        requests: {cpu: 500m, memory: 2Gi}
+        limits: {memory: 3Gi}
+      heap: 1g
+    - name: brokers
+      replicas: 6          # two per availability zone
+      roles: [broker]
+      storage: {size: 500Gi, storageClass: gp3}
+      resources:
+        requests: {cpu: "2", memory: 8Gi}
+        limits: {memory: 12Gi}
+      heap: 4g
+  topics:
+    events.raw:
+      partitions: 12       # more parallelism for consumers; key = source keeps per-source order
+      replicas: 3
+      config: {min.insync.replicas: "2", retention.ms: "604800000", compression.type: producer}
+    events.dlq:
+      partitions: 3
+      replicas: 3
+      config: {min.insync.replicas: "2", retention.ms: "2592000000"}
+
+flink-jobs:
+  parallelism: 6
+  taskSlots: 2
+  jobManager:
+    memory: 2048m
+    cpu: 1
+  taskManager:
+    memory: 8192m
+    cpu: 2
+  storage:
+    checkpointsDir: s3://lakehouse-prod-checkpoints/flink/checkpoints
+    savepointsDir: s3://lakehouse-prod-checkpoints/flink/savepoints
+  highAvailability:
+    enabled: true
+    storageDir: s3://lakehouse-prod-checkpoints/flink/ha
+
+ingestion-service:
+  podDisruptionBudget:
+    minAvailable: 2
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 12
+  resources:
+    requests: {cpu: "1", memory: 1536Mi}
+    limits: {cpu: "4", memory: 2Gi}
+
+spark-jobs:
+  executor:
+    instances: 4
+    cores: 2
+    memory: 4g

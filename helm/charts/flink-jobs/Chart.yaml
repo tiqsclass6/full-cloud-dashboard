@@ -1,0 +1,10 @@
+apiVersion: v2
+name: flink-jobs
+description: The Kafka-to-Iceberg streaming job as a FlinkDeployment (Flink Kubernetes Operator).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: lakehouse-lib
+    version: 0.1.0
+    repository: file://../lakehouse-lib

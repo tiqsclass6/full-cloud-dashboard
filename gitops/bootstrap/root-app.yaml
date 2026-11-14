@@ -1,0 +1,19 @@
+# App of apps: the only Application applied by hand.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: gitops-root
+  source:
+    repoURL: http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+    targetRevision: main
+    path: gitops/argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

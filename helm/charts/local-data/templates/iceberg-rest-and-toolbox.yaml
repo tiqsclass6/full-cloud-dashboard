@@ -1,0 +1,124 @@
+{{- $ctx := dict "root" $ "name" "iceberg-rest" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-rest
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  selector:
+    {{- include "lakehouse.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: 8181
+---
+# Iceberg REST catalog on Postgres (stand-in for Glue). In CATALOG_* names __ means - and _ means a dot.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg-rest
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lakehouse.labels" $ctx | nindent 8 }}
+    spec:
+      containers:
+        - name: iceberg-rest
+          image: {{ include "lakehouse.image" (dict "root" $ "image" .Values.icebergRest.image) }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8181
+          env:
+            - name: CATALOG_CATALOG__IMPL
+              value: org.apache.iceberg.jdbc.JdbcCatalog
+            - name: CATALOG_URI
+              value: jdbc:postgresql://postgres.{{ .Values.namespace }}.svc:5432/iceberg
+            - name: CATALOG_JDBC_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: CATALOG_JDBC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: CATALOG_JDBC_INIT__CATALOG__TABLES
+              value: "true"
+            - name: CATALOG_WAREHOUSE
+              value: {{ .Values.global.iceberg.warehouse | quote }}
+            - name: CATALOG_IO__IMPL
+              value: org.apache.iceberg.aws.s3.S3FileIO
+            - name: CATALOG_S3_ENDPOINT
+              value: {{ .Values.global.s3.endpoint | quote }}
+            - name: CATALOG_S3_PATH__STYLE__ACCESS
+              value: "true"
+            - name: AWS_REGION
+              value: {{ .Values.global.aws.region | default "us-east-1" | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_SECRET_ACCESS_KEY
+          readinessProbe:
+            httpGet:
+              path: /v1/config
+              port: 8181
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              memory: 768Mi
+---
+# Long-lived curl pod used by local/scripts/smoke.sh to call in-cluster services.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toolbox
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" (dict "root" $ "name" "toolbox") | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" (dict "root" $ "name" "toolbox") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lakehouse.labels" (dict "root" $ "name" "toolbox") | nindent 8 }}
+    spec:
+      containers:
+        - name: curl
+          image: {{ include "lakehouse.image" (dict "root" $ "image" .Values.toolboxImage) }}
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi

@@ -1,0 +1,15 @@
+title: Streaming Lakehouse Platform
+description: Kafka, Flink and Iceberg on Kubernetes (kind and Amazon EKS), delivered with Helm and Argo CD, with an agentic ops assistant.
+theme: just-the-docs
+color_scheme: auto
+markdown: kramdown
+
+baseurl: ""
+
+plugins:
+  - jekyll-feed
+
+nav_sort: case_sensitive
+
+header_pages:
+  - index.md

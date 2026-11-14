@@ -1,0 +1,16 @@
+# Registers the cluster Argo CD runs in, with the labels the ApplicationSets select on.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-local
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: cluster
+    lakehouse.io/managed: "true"
+    lakehouse.io/env: local
+    lakehouse.io/env-group: local
+type: Opaque
+stringData:
+  name: local
+  server: https://kubernetes.default.svc
+  config: '{"tlsClientConfig":{"insecure":false}}'

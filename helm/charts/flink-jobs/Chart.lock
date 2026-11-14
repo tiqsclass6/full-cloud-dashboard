@@ -1,0 +1,6 @@
+dependencies:
+- name: lakehouse-lib
+  repository: file://../lakehouse-lib
+  version: 0.1.0
+digest: sha256:fd85c9f161aef72436249e15d070fac179e54aad012b9b8492bc9a3c3d085af2
+generated: "2026-10-29T17:47:07.6627109-07:00"

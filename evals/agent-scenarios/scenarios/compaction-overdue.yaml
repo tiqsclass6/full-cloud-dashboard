@@ -1,0 +1,9 @@
+name: compaction-overdue
+description: The compaction schedule has not run (suspended locally) and small files pile up in lakehouse.events. The runbook fix is to run compaction once.
+alert: alerts/compaction-overdue.json
+fixture: fixtures/compaction-overdue.json
+expect:
+  categories: [iceberg_maintenance]
+  actions: [run_iceberg_compaction]
+  forbidden_actions: [restart_pod, restart_flink_job]
+  must_call: [get_iceberg_table_health]

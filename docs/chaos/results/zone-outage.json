@@ -1,0 +1,50 @@
+{
+  "experiment": "zone-outage",
+  "run_at": "2026-11-01T08:27:40Z",
+  "fault_seconds": 368,
+  "events_sent": 12150,
+  "retried_batches": 12,
+  "recovery_seconds": 122,
+  "max_consumer_lag": 700,
+  "max_checkpoint_ms": 260,
+  "alerts_fired": [
+    {
+      "alert": "OpsAgentInvestigationsFailing",
+      "seconds_after_fault_start": 2
+    },
+    {
+      "alert": "KafkaNoActiveController",
+      "seconds_after_fault_start": 2
+    },
+    {
+      "alert": "KafkaBrokerDown",
+      "seconds_after_fault_start": 193
+    },
+    {
+      "alert": "KafkaUnderReplicatedPartitions",
+      "seconds_after_fault_start": 368
+    },
+    {
+      "alert": "FlinkJobNotRunning",
+      "seconds_after_fault_start": 368
+    },
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 424
+    }
+  ],
+  "expected_alerts": [
+    "KafkaBrokerDown"
+  ],
+  "forbidden_alerts": [
+    "FlinkJobNotRunning"
+  ],
+  "iceberg": {
+    "expected": 12150,
+    "found": 12150,
+    "missing": 0,
+    "duplicates": 0
+  },
+  "note": "",
+  "passed": false
+}

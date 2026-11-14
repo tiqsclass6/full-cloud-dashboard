@@ -1,0 +1,41 @@
+# Defaults match the local kind deployment; environment files in helm/values override them.
+namespace: apps
+
+image:
+  repository: lakehouse/spark-jobs
+  tag: ""          # empty: use global.imageTag
+
+sparkVersion: "4.1.4"
+serviceAccount: spark-operator-spark
+
+# Locally the schedules exist but are suspended so they do not use laptop memory on their own.
+suspend: true
+
+driver:
+  cores: 1
+  memory: 1g
+executor:
+  instances: 2
+  cores: 1
+  memory: 1g
+
+# Extra Spark settings applied to every job (e.g. spark.sql.adaptive.enabled).
+sparkConf: {}
+
+# One ScheduledSparkApplication per entry. Keys are the resource names; override per environment.
+schedules:
+  events-compaction:
+    description: "Hourly: merge the small files Flink commits (bin-pack toward 128 MiB) and compact manifests."
+    schedule: "0 * * * *"
+    entry: maintenance
+    args: ["--steps", "compact,manifests", "--target-file-size-mb", "128", "--min-input-files", "5"]
+  events-expire:
+    description: "Daily: drop snapshots older than 3 days (keep at least 10) so compacted-away files are deleted, then remove unreferenced files older than 3 days."
+    schedule: "30 3 * * *"
+    entry: maintenance
+    args: ["--steps", "expire,orphans", "--expire-older-than-hours", "72", "--retain-last", "10", "--orphan-older-than-hours", "72"]
+  events-hourly-aggregate:
+    description: "Hourly at :10: recompute the last 3 hours of per-source aggregates (late data heals itself)."
+    schedule: "10 * * * *"
+    entry: aggregate
+    args: ["--lookback-hours", "3"]

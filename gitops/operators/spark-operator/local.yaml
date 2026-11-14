@@ -1,0 +1,23 @@
+# Kubeflow Spark operator for kind; runs the (Scheduled)SparkApplications in apps.
+spark:
+  jobNamespaces:
+    - apps
+
+# The mutating webhook is not needed: job settings (env, secrets, resources) go through Spark conf.
+webhook:
+  enable: false
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# Job outcome metrics come from the operator: Spark jobs are short batch runs.
+prometheus:
+  metrics:
+    enable: true
+  podMonitor:
+    create: true

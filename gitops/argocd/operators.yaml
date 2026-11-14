@@ -1,0 +1,111 @@
+# One Application per (cluster x operator); the env-group label picks the values, generated-<env>.yaml goes last.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: operators
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  # Lets an operator pause auto-sync on one generated Application (see local/scripts/lib.sh).
+  ignoreApplicationDifferences:
+    - jsonPointers: [/spec/syncPolicy]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  lakehouse.io/managed: "true"
+          - list:
+              elements:
+                - {component: kube-prometheus-stack, release: kps, namespace: monitoring,
+                   repoURL: "https://prometheus-community.github.io/helm-charts",
+                   chart: kube-prometheus-stack, version: 92.14.1}
+                - {component: strimzi, release: strimzi, namespace: kafka,
+                   repoURL: "https://strimzi.io/charts/",
+                   chart: strimzi-kafka-operator, version: 1.3.0}
+                - {component: flink-operator, release: flink-operator, namespace: flink-operator,
+                   repoURL: "https://downloads.apache.org/flink/flink-kubernetes-operator-1.16.1/",
+                   chart: flink-kubernetes-operator, version: 1.16.1}
+                - {component: spark-operator, release: spark-operator, namespace: spark-operator,
+                   repoURL: "https://kubeflow.github.io/spark-operator",
+                   chart: spark-operator, version: 2.5.2}
+                - {component: kyverno, release: kyverno, namespace: kyverno,
+                   repoURL: "https://kyverno.github.io/kyverno/",
+                   chart: kyverno, version: 3.9.2}
+                - {component: external-secrets, release: external-secrets, namespace: external-secrets,
+                   repoURL: "https://charts.external-secrets.io",
+                   chart: external-secrets, version: 2.14.0}
+                - {component: loki, release: loki, namespace: observability,
+                   repoURL: "https://grafana.github.io/helm-charts",
+                   chart: loki, version: 7.5.0}
+                - {component: tempo, release: tempo, namespace: observability,
+                   repoURL: "https://grafana.github.io/helm-charts",
+                   chart: tempo, version: 1.24.4}
+                - {component: alloy, release: alloy, namespace: observability,
+                   repoURL: "https://grafana.github.io/helm-charts",
+                   chart: alloy, version: 1.15.0}
+                - {component: chaos-mesh, release: chaos-mesh, namespace: chaos-mesh,
+                   repoURL: "https://charts.chaos-mesh.org",
+                   chart: chaos-mesh, version: 2.8.5}
+  template:
+    metadata:
+      name: '{{ .component }}-{{ index .metadata.labels "lakehouse.io/env" }}'
+      labels:
+        lakehouse.io/layer: operators
+        lakehouse.io/env: '{{ index .metadata.labels "lakehouse.io/env" }}'
+    spec:
+      project: platform-operators
+      sources:
+        - repoURL: '{{ .repoURL }}'
+          chart: '{{ .chart }}'
+          targetRevision: '{{ .version }}'
+          helm:
+            releaseName: '{{ .release }}'
+            valueFiles:
+              - '$values/gitops/operators/{{ .component }}/{{ index .metadata.labels "lakehouse.io/env-group" }}.yaml'
+              - '$values/gitops/operators/{{ .component }}/generated-{{ index .metadata.labels "lakehouse.io/env" }}.yaml'
+            ignoreMissingValueFiles: true
+        - repoURL: http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: '{{ .namespace }}'
+      # Chaos Mesh renders a new webhook CA on every refresh; keep the first one so Secret and caBundle match.
+      ignoreDifferences:
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+        - kind: Secret
+          name: chaos-mesh-webhook-certs
+          jsonPointers: [/data]
+        - kind: Secret               # controller <-> daemon mutual TLS, generated the same way
+          name: chaos-mesh-daemon-certs
+          jsonPointers: [/data]
+        - kind: Secret
+          name: chaos-mesh-daemon-client-certs
+          jsonPointers: [/data]
+        - kind: Secret
+          name: chaos-mesh-chaosd-client-certs
+          jsonPointers: [/data]
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        # Third-party operators: Pod Security is audited and warned, not enforced.
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true       # kube-prometheus-stack CRDs exceed the client-side annotation limit
+          - RespectIgnoreDifferences=true   # do not overwrite the ignored fields on sync either
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}

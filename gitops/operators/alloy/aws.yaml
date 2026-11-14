@@ -1,0 +1,132 @@
+# Grafana Alloy (chart grafana/alloy 1.15.0, Alloy 1.21): pod logs via the Kubernetes API to Loki, OTLP traces to Tempo.
+controller:
+  type: deployment
+  replicas: 1
+
+# Logs via the API need no host access, so Alloy meets Pod Security "restricted".
+global:
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 473
+    runAsGroup: 473
+    fsGroup: 473
+    seccompProfile:
+      type: RuntimeDefault
+
+alloy:
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  mounts:
+    varlog: false
+    dockercontainers: false
+  extraPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {memory: 512Mi}
+  configMap:
+    content: |
+      logging {
+        level = "warn"
+      }
+
+      // Pod logs to Loki.
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app"]
+          target_label  = "app"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.process.pods.receiver]
+      }
+
+      // A trace id in a log line becomes structured metadata, so Grafana links the line to its trace.
+      loki.process "pods" {
+        stage.regex {
+          expression = "trace_id=(?P<trace_id>[0-9a-f]{32})"
+        }
+        stage.structured_metadata {
+          values = { trace_id = "" }
+        }
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.observability.svc:3100/loki/api/v1/push"
+        }
+      }
+
+      // OTLP traces to Tempo.
+      otelcol.receiver.otlp "default" {
+        grpc {
+          endpoint = "0.0.0.0:4317"
+        }
+        http {
+          endpoint = "0.0.0.0:4318"
+        }
+        output {
+          traces = [otelcol.processor.filter.noise.input]
+        }
+      }
+
+      // Prometheus scrapes and Kubernetes probes would otherwise be most of the traces.
+      otelcol.processor.filter "noise" {
+        error_mode = "ignore"
+        traces {
+          span = [
+            "attributes[\"url.path\"] == \"/metrics\"",
+            "IsMatch(attributes[\"url.path\"], \"^/health/.*\")",
+          ]
+        }
+        output {
+          traces = [otelcol.processor.batch.default.input]
+        }
+      }
+
+      otelcol.processor.batch "default" {
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "tempo.observability.svc:4317"
+          tls {
+            insecure = true
+          }
+        }
+      }
+
+serviceMonitor:
+  enabled: true

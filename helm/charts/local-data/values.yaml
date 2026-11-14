@@ -1,0 +1,37 @@
+# Local kind cluster only. Credentials are throwaway development values, never reused anywhere.
+namespace: data
+
+credentials:
+  postgres:
+    user: platform
+    password: platform-local-dev
+  s3:
+    accessKey: lakehouse-local
+    secretKey: lakehouse-local-secret
+  # Secrets are namespaced: every namespace whose pods talk to S3 gets a copy of the S3 keys.
+  s3SecretNamespaces: [data, apps]
+  # ...and every namespace whose pods use Postgres directly (ops-control's audit store).
+  postgresSecretNamespaces: [ai-ops]
+
+postgres:
+  image: {repository: postgres, tag: "17-alpine", external: true}
+  databases: [iceberg, apicurio, platform, langfuse]
+  storage: 2Gi
+
+seaweedfs:
+  image: {repository: chrislusf/seaweedfs, tag: "4.30", external: true}
+  storage: 5Gi
+  # Deleted objects free space only when SeaweedFS vacuums; 40 volumes were exhausted once (docs/spark-iceberg.md).
+  maxVolumes: 200
+  volumeSizeLimitMB: 256
+  resources:
+    requests: {cpu: 100m, memory: 1Gi}
+    limits: {memory: 3Gi}
+  buckets: [warehouse, checkpoints, spark-events, langfuse]
+
+icebergRest:
+  # Built from local/container-images/iceberg-rest (adds the Postgres JDBC driver); loaded into kind by up.sh.
+  image: {repository: lakehouse/iceberg-rest, tag: "1.10.1-pg", external: true}
+
+awsCliImage: {repository: amazon/aws-cli, tag: "2.38.5", external: true}
+toolboxImage: {repository: curlimages/curl, tag: "8.11.1", external: true}

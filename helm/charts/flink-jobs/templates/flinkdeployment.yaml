@@ -1,0 +1,109 @@
+{{- $ctx := dict "root" $ "name" .Values.name -}}
+{{- $s3 := .Values.global.s3 | default dict -}}
+{{- /* Without HA a FAILED job restarts from the last savepoint and replays everything since (500,000 duplicates once; gitops/README.md). */ -}}
+{{- if and .Values.restartFailedJob (not .Values.highAvailability.enabled) }}
+{{- fail "flink-jobs: restartFailedJob requires highAvailability.enabled (otherwise recovery restores a stale savepoint and duplicates data)" }}
+{{- end }}
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  image: {{ include "lakehouse.image" (dict "root" $ "image" .Values.image) }}
+  imagePullPolicy: {{ include "lakehouse.imagePullPolicy" $ctx }}
+  flinkVersion: {{ .Values.flinkVersion }}
+  serviceAccount: {{ .Values.serviceAccount }}
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: {{ .Values.taskSlots | quote }}
+    # Exactly-once: barrier checkpoints; the Iceberg sink commits a snapshot when a checkpoint completes.
+    execution.checkpointing.interval: {{ .Values.checkpointing.interval }}
+    execution.checkpointing.mode: EXACTLY_ONCE
+    execution.checkpointing.min-pause: {{ .Values.checkpointing.minPause }}
+    execution.checkpointing.timeout: {{ .Values.checkpointing.timeout }}
+    execution.checkpointing.tolerable-failed-checkpoints: {{ .Values.checkpointing.tolerableFailures | quote }}
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+    state.backend.type: {{ .Values.stateBackend.type }}
+    {{- if eq .Values.stateBackend.type "rocksdb" }}
+    execution.checkpointing.incremental: {{ .Values.stateBackend.incremental | quote }}
+    {{- end }}
+    state.checkpoints.dir: {{ .Values.storage.checkpointsDir }}
+    state.savepoints.dir: {{ .Values.storage.savepointsDir }}
+    restart-strategy.type: exponential-delay
+    restart-strategy.exponential-delay.initial-backoff: 2s
+    restart-strategy.exponential-delay.max-backoff: 60s
+    # Restart a job that reached FAILED (e.g. the catalog was down at start-up).
+    kubernetes.operator.job.restart.failed: {{ .Values.restartFailedJob | quote }}
+    {{- if .Values.metrics.enabled }}
+    # Prometheus reporter (plugin shipped in the image): checkpoints, backpressure, Kafka lag, JVM.
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prom.port: {{ .Values.metrics.port | quote }}
+    {{- end }}
+    {{- if $s3.endpoint }}
+    # Local S3 stand-in: explicit endpoint, path-style access and static dev keys.
+    s3.endpoint: {{ $s3.endpoint }}
+    s3.path.style.access: "true"
+    s3.access-key: {{ .Values.s3StaticKeys.accessKey }}
+    s3.secret-key: {{ .Values.s3StaticKeys.secretKey }}
+    {{- end }}
+    {{- if .Values.highAvailability.enabled }}
+    {{- include "lakehouse.required" (dict "root" $ "key" "flink-jobs.highAvailability.storageDir" "value" .Values.highAvailability.storageDir) }}
+    high-availability.type: kubernetes
+    high-availability.storageDir: {{ .Values.highAvailability.storageDir }}
+    {{- end }}
+    {{- range $key, $value := .Values.extraFlinkConfiguration }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  logConfiguration:
+    log4j-console.properties: |
+      {{- .Files.Get "files/log4j-console.properties" | nindent 6 }}
+  jobManager:
+    resource:
+      memory: {{ .Values.jobManager.memory }}
+      cpu: {{ .Values.jobManager.cpu }}
+  taskManager:
+    resource:
+      memory: {{ .Values.taskManager.memory }}
+      cpu: {{ .Values.taskManager.cpu }}
+  podTemplate:
+    spec:
+      # Pod Security "restricted" (JobManager and TaskManagers). The image's flink user is 9999.
+      securityContext:
+        {{- include "lakehouse.podSecurityContext" (dict "uid" 9999) | nindent 8 }}
+      containers:
+        - name: flink-main-container
+          {{- if .Values.metrics.enabled }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+          {{- end }}
+          securityContext:
+            {{- include "lakehouse.containerSecurityContext" (dict "writableRoot" true) | nindent 12 }}
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.global.kafka.bootstrapServers | quote }}
+            - name: SCHEMA_REGISTRY_URL
+              value: {{ .Values.global.schemaRegistry.url | quote }}
+            {{- include "lakehouse.icebergEnv" $ctx | nindent 12 }}
+            {{- include "lakehouse.s3Env" $ctx | nindent 12 }}
+            - name: PARALLELISM
+              value: {{ .Values.parallelism | quote }}
+            - name: DEDUPE_TTL_MINUTES
+              value: {{ .Values.dedupeTtlMinutes | quote }}
+            {{- include "lakehouse.kafkaClientEnv" (dict "root" $ "prefix" "KAFKA_CLIENT_" "user" .Values.kafkaUser) | nindent 12 }}
+          {{- with (include "lakehouse.kafkaClientVolumeMounts" $ctx) }}
+          volumeMounts:
+            {{- . | trim | nindent 12 }}
+          {{- end }}
+      {{- with (include "lakehouse.kafkaClientVolumes" (dict "root" $ "user" .Values.kafkaUser)) }}
+      volumes:
+        {{- . | trim | nindent 8 }}
+      {{- end }}
+  job:
+    jarURI: local:///opt/flink/usrlib/job.jar
+    entryClass: io.lakehouse.flink.EventsJob
+    parallelism: {{ .Values.parallelism }}
+    upgradeMode: {{ .Values.upgradeMode }}
+    state: running

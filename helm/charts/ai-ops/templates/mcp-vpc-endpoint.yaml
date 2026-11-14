@@ -1,0 +1,41 @@
+{{- if .Values.mcp.vpcEndpoint.enabled }}
+{{- $ctx := dict "root" $ "name" "mcp-platform-tools" -}}
+# AWS: internal NLB (IP targets, TLS ends in the pod) that AgentCore Gateway reaches through VPC Lattice.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-platform-tools-vpc
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-source-ranges: {{ .Values.mcp.vpcEndpoint.allowedCidr | quote }}
+spec:
+  type: LoadBalancer
+  loadBalancerClass: service.k8s.aws/nlb
+  allocateLoadBalancerNodePorts: false
+  selector:
+    {{- include "lakehouse.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - {name: https, port: 443, targetPort: https, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-vpc-endpoint
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $ctx | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: {{ .Values.mcp.vpcEndpoint.allowedCidr }}}
+      ports:
+        - {protocol: TCP, port: 8443}
+{{- end }}

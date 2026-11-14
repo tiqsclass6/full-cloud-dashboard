@@ -1,0 +1,69 @@
+# The ops agent's RBAC in its own project: lakehouse may create no RBAC, and this project nothing else.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ai-ops-access
+  namespace: argocd
+spec:
+  description: RBAC for the ops agent's service accounts (read-only tools; approved actions only)
+  sourceRepos:
+    - http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+  destinations:
+    - {server: "*", namespace: ai-ops}
+    - {server: "*", namespace: apps}
+    - {server: "*", namespace: data}
+    - {server: "*", namespace: kafka}
+    - {server: "*", namespace: observability}
+    - {server: "*", namespace: monitoring}
+    - {server: "*", namespace: argocd}
+    - {server: "*", namespace: flink-operator}
+    - {server: "*", namespace: spark-operator}
+  clusterResourceWhitelist:
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+  namespaceResourceWhitelist:
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ai-ops-access
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            lakehouse.io/managed: "true"
+  template:
+    metadata:
+      name: 'ai-ops-access-{{ index .metadata.labels "lakehouse.io/env" }}'
+      labels:
+        lakehouse.io/layer: platform
+        lakehouse.io/env: '{{ index .metadata.labels "lakehouse.io/env" }}'
+    spec:
+      project: ai-ops-access
+      source:
+        repoURL: http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+        targetRevision: main
+        path: helm/charts/ai-ops-access
+        helm:
+          releaseName: ai-ops-access
+          parameters:
+            - name: global.environment
+              value: '{{ index .metadata.labels "lakehouse.io/env" }}'
+      destination:
+        server: '{{ .server }}'
+        namespace: ai-ops
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+        retry:
+          limit: 20
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}

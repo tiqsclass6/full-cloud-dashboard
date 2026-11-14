@@ -1,0 +1,18 @@
+# Direct dependencies of ops-agent and ops-control. Locked with hashes into requirements.txt:
+#   make ai-lock   (uv pip compile, only releases at least two weeks old)
+anthropic[bedrock]==1.15.0
+mcp==2.3.0
+kubernetes==37.0.1
+psycopg[binary]==3.3.6
+slack-bolt==1.30.0
+slack-sdk==3.45.0
+prometheus-client==0.26.0
+uvicorn==0.54.0
+pydantic==2.14.1
+pyyaml==6.0.3
+# Agent framework (Pydantic AI, its eval library) and LLM tracing (Langfuse, self-hosted)
+pydantic-ai-slim[anthropic]==2.57.0
+pydantic-evals==2.57.0
+langfuse==5.0.2
+# Security floor: GHSA-6q48-6c7w-9gw2 (fixed in 2026.10.18)
+certifi==2026.10.18

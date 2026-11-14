@@ -1,0 +1,75 @@
+{{- $s3 := .Values.global.s3 | default dict -}}
+{{- range $name, $job := .Values.schedules }}
+{{- $ctx := dict "root" $ "name" $name }}
+---
+# {{ $job.description }}
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: ScheduledSparkApplication
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  schedule: {{ $job.schedule | quote }}
+  concurrencyPolicy: Forbid
+  suspend: {{ if hasKey $job "suspend" }}{{ $job.suspend }}{{ else }}{{ $.Values.suspend }}{{ end }}
+  successfulRunHistoryLimit: 3
+  failedRunHistoryLimit: 3
+  template:
+    type: Python
+    pythonVersion: "3"
+    mode: cluster
+    image: {{ include "lakehouse.image" (dict "root" $ "image" $.Values.image) }}
+    imagePullPolicy: {{ include "lakehouse.imagePullPolicy" $ctx }}
+    mainApplicationFile: local:///opt/jobs/{{ $job.entry }}.py
+    arguments:
+      {{- range $job.args }}
+      - {{ . | quote }}
+      {{- end }}
+    sparkVersion: {{ $.Values.sparkVersion | quote }}
+    restartPolicy:
+      type: OnFailure
+      onFailureRetries: 2
+      onFailureRetryInterval: 60
+    sparkConf:
+      spark.kubernetes.driverEnv.ICEBERG_CATALOG_TYPE: {{ $.Values.global.iceberg.catalogType | default "rest" | quote }}
+      spark.kubernetes.driverEnv.ICEBERG_REST_URI: {{ $.Values.global.iceberg.restUri | default "" | quote }}
+      spark.kubernetes.driverEnv.ICEBERG_WAREHOUSE: {{ $.Values.global.iceberg.warehouse | quote }}
+      spark.kubernetes.driverEnv.AWS_REGION: {{ $.Values.global.aws.region | default "us-east-1" | quote }}
+      {{- if $s3.endpoint }}
+      spark.kubernetes.driverEnv.S3_ENDPOINT: {{ $s3.endpoint | quote }}
+      spark.kubernetes.driver.secretKeyRef.S3_ACCESS_KEY_ID: {{ printf "%s:AWS_ACCESS_KEY_ID" ($s3.credentialsSecret | default "s3-credentials") | quote }}
+      spark.kubernetes.driver.secretKeyRef.S3_SECRET_ACCESS_KEY: {{ printf "%s:AWS_SECRET_ACCESS_KEY" ($s3.credentialsSecret | default "s3-credentials") | quote }}
+      {{- end }}
+      {{- range $key, $value := $.Values.sparkConf }}
+      {{ $key }}: {{ $value | quote }}
+      {{- end }}
+    # Pod Security restricted via Spark pod templates: the operator's securityContext fields need its disabled webhook.
+    driver:
+      cores: {{ $.Values.driver.cores }}
+      memory: {{ $.Values.driver.memory }}
+      serviceAccount: {{ $.Values.serviceAccount }}
+      template:
+        spec:
+          securityContext:
+            {{- include "lakehouse.podSecurityContext" (dict "uid" 185) | nindent 12 }}
+          containers:
+            - name: spark-kubernetes-driver
+              securityContext:
+                {{- include "lakehouse.containerSecurityContext" (dict "writableRoot" true) | nindent 16 }}
+    executor:
+      instances: {{ $.Values.executor.instances }}
+      cores: {{ $.Values.executor.cores }}
+      memory: {{ $.Values.executor.memory }}
+      # Executors read and write data files too, so they need the same identity (IRSA on AWS).
+      serviceAccount: {{ $.Values.serviceAccount }}
+      template:
+        spec:
+          securityContext:
+            {{- include "lakehouse.podSecurityContext" (dict "uid" 185) | nindent 12 }}
+          containers:
+            - name: spark-kubernetes-executor
+              securityContext:
+                {{- include "lakehouse.containerSecurityContext" (dict "writableRoot" true) | nindent 16 }}
+{{- end }}

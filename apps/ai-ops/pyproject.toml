@@ -1,0 +1,20 @@
+[project]
+name = "ai-ops"
+version = "0.1.0"
+description = "Platform ops agent (Claude on Amazon Bedrock) with human-approved remediation and an eval suite"
+requires-python = ">=3.12"
+# Direct dependencies; requirements.txt is the hash-locked closure built from requirements.in.
+dependencies = [
+  "anthropic[bedrock]==1.15.0", "mcp==2.3.0", "kubernetes==37.0.1", "psycopg[binary]==3.3.6",
+  "slack-bolt==1.30.0", "slack-sdk==3.45.0", "prometheus-client==0.26.0", "uvicorn==0.54.0",
+  "pydantic==2.14.1", "pyyaml==6.0.3", "pydantic-ai-slim[anthropic]==2.57.0", "pydantic-evals==2.57.0",
+  "langfuse==5.0.2",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
+addopts = "-q -p no:cacheprovider"

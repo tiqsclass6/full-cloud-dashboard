@@ -1,0 +1,99 @@
+# Shared by every AWS env; account values come from git-ignored values/generated/<env>.yaml (placeholders keep it renderable).
+global:
+  imageRegistry: 111122223333.dkr.ecr.us-east-1.amazonaws.com
+  imagePullPolicy: IfNotPresent
+  s3:
+    endpoint: ""                 # real S3: no endpoint, no static keys; IRSA supplies credentials
+  iceberg:
+    # The AWS Glue Data Catalog through Iceberg's GlueCatalog; Athena queries the same tables.
+    catalogType: glue
+    restUri: ""
+    warehouse: s3://lakehouse-ENV-warehouse-ACCOUNT/iceberg   # replaced by values/generated/<env>.yaml
+
+local-data:
+  enabled: false
+
+# The schema registry reaches RDS inside the VPC; S3, Glue and STS go over HTTPS egress.
+network-policies:
+  extraFlows:
+    - name: schema-registry-to-rds
+      from: {namespace: data, podLabels: {app: apicurio-registry}}
+      to: {cidr: 10.0.0.0/8, ports: [5432]}
+    - name: ops-control-to-rds
+      from: {namespace: ai-ops, podLabels: {app: ops-control}}
+      to: {cidr: 10.0.0.0/8, ports: [5432]}
+
+# Credentials from AWS Secrets Manager through the External Secrets Operator (helm/charts/secrets).
+secrets:
+  enabled: true
+  externalSecrets:
+    schema-registry-db:
+      remoteKey: "<rds-master-secret-arn>"      # replaced by values/generated/<env>.yaml
+    grafana-admin:
+      remoteKey: lakehouse-ENV/grafana-admin     # replaced by values/generated/<env>.yaml
+    ops-control-db:                              # the ops agent's audit store (schema "ops" in RDS)
+      namespace: ai-ops
+      remoteKey: "<rds-master-secret-arn>"       # replaced by values/generated/<env>.yaml
+      properties: {username: username, password: password}
+
+schema-registry:
+  replicaCount: 2
+  datasource:
+    url: jdbc:postgresql://<rds-endpoint>:5432/apicurio?sslmode=require
+    credentialsSecret: schema-registry-db     # synced from Secrets Manager (helm/charts/secrets)
+    usernameKey: username
+    passwordKey: password
+
+kafka-cluster:
+  # Dedicated controllers and brokers: control-plane load and broker restarts stay independent.
+  nodePools:
+    - name: controllers
+      replicas: 3
+      roles: [controller]
+      storage: {size: 20Gi, storageClass: gp3, kraftMetadata: shared}
+      resources:
+        requests: {cpu: 250m, memory: 1Gi}
+        limits: {memory: 2Gi}
+      heap: 1g
+    - name: brokers
+      replicas: 3
+      roles: [broker]
+      storage: {size: 100Gi, storageClass: gp3}
+      resources:
+        requests: {cpu: "1", memory: 4Gi}
+        limits: {memory: 6Gi}
+      heap: 2g
+
+ingestion-service:
+  topologySpread:
+    whenUnsatisfiable: DoNotSchedule
+  autoscaling:
+    enabled: true
+
+flink-jobs:
+  # Incremental RocksDB: full snapshots of the de-dup state exhausted the local S3 stand-in.
+  stateBackend:
+    type: rocksdb
+    incremental: true
+  s3StaticKeys:
+    accessKey: ""
+    secretKey: ""
+  # Flink's S3 plugin (SDK v1) needs the web-identity provider named for IRSA; Iceberg's S3FileIO does not.
+  extraFlinkConfiguration:
+    fs.s3a.aws.credentials.provider: com.amazonaws.auth.WebIdentityTokenCredentialsProvider
+
+spark-jobs:
+  suspend: false
+
+# Investigations run on AgentCore Runtime; the tools stay in the cluster behind an internal NLB (docs/ai-ops.md).
+ai-ops:
+  database:
+    host: "<rds-endpoint>"
+    name: postgres
+    sslmode: require
+    credentialsSecret: ops-control-db
+    usernameKey: username
+    passwordKey: password
+  mcp:
+    vpcEndpoint:
+      enabled: true

@@ -1,0 +1,28 @@
+{
+  "experiment": "kafka-latency",
+  "run_at": "2026-11-01T03:51:21Z",
+  "fault_seconds": 362,
+  "events_sent": 66000,
+  "retried_batches": 0,
+  "recovery_seconds": 225,
+  "max_consumer_lag": 271,
+  "max_checkpoint_ms": 1398,
+  "alerts_fired": [
+    {
+      "alert": "IcebergCompactionOverdue",
+      "seconds_after_fault_start": 0
+    }
+  ],
+  "expected_alerts": [],
+  "forbidden_alerts": [
+    "IngestErrorBudgetBurnFast",
+    "FlinkJobNotRunning"
+  ],
+  "iceberg": {
+    "expected": 66000,
+    "found": 66000,
+    "missing": 0,
+    "duplicates": 0
+  },
+  "passed": true
+}

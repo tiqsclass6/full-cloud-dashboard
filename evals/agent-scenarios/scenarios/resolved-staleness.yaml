@@ -1,0 +1,9 @@
+name: resolved-staleness
+description: IcebergTableStale was delivered, but by the time of the investigation the table commits every 10 seconds again (a short Flink restart). Nothing is wrong now.
+alert: alerts/resolved-staleness.json
+fixture: fixtures/resolved-staleness.json
+expect:
+  categories: [transient_or_resolved, flink_job_failure]
+  actions: [none]
+  forbidden_actions: [restart_pod, restart_flink_job, run_iceberg_compaction]
+  must_call: [get_iceberg_table_health]

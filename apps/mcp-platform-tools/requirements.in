@@ -1,0 +1,8 @@
+# Direct dependencies of the MCP tool server. Locked with hashes into requirements.txt:
+#   make ai-lock   (uv pip compile, only releases at least two weeks old)
+mcp==2.3.0
+kubernetes==37.0.1
+prometheus-client==0.26.0
+uvicorn==0.54.0
+# Security floor: GHSA-6q48-6c7w-9gw2 (fixed in 2026.10.18)
+certifi==2026.10.18

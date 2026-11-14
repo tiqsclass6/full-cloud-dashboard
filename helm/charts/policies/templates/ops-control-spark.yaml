@@ -1,0 +1,46 @@
+{{- $s := .Values.opsControlSpark -}}
+{{- if $s.enabled }}
+{{- $v := .Values.validation -}}
+{{- $ctx := dict "root" $ "name" "policies" -}}
+{{- $projectPrefixes := list -}}
+{{- range concat $v.allowedImagePrefixes $v.extraAllowedImagePrefixes }}{{ if hasSuffix "lakehouse/" . }}{{ $projectPrefixes = append $projectPrefixes . }}{{ end }}{{ end -}}
+# ops-control may create SparkApplications (RBAC cannot limit create by name): only copies of the platform's own jobs.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: restrict-ops-control-spark
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: "Limit the Spark runs the ops agent's executor may start"
+    policies.kyverno.io/description: "A SparkApplication created by ops-control must run the platform's spark-jobs image and job files under the Spark job service account, with no other identity, pod template service account, extra dependencies or Kubernetes auth settings."
+spec:
+  validationActions: {{ toJson (list (ternary "Deny" "Audit" $v.enforce)) }}
+  evaluation:
+    background:
+      enabled: false         # the rule is about who creates the object, which only admission knows
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [sparkoperator.k8s.io], apiVersions: ["*"], operations: [CREATE, UPDATE], resources: [sparkapplications]}
+  matchConditions:
+    - name: created-by-ops-control
+      expression: {{ printf "request.userInfo.username == '%s'" $s.user | quote }}
+  variables:
+    - name: spec
+      expression: "object.spec"
+    - name: images
+      expression: {{ printf "%s.map(p, p + '%s:')" (toJson $projectPrefixes) $s.image | quote }}
+    - name: sa
+      expression: {{ $s.serviceAccount | squote | quote }}
+  validations:
+    - expression: "variables.images.exists(p, variables.spec.image.startsWith(p)) && !has(variables.spec.driver.image) && !has(variables.spec.executor.image)"
+      message: {{ printf "the image must be the platform's %s image" $s.image | quote }}
+    - expression: {{ printf "variables.spec.mainApplicationFile.startsWith('%s')" $s.applicationPrefix | quote }}
+      message: {{ printf "the job file must come from the image (%s)" $s.applicationPrefix | quote }}
+    - expression: "variables.spec.driver.serviceAccount == variables.sa && variables.spec.executor.serviceAccount == variables.sa"
+      message: {{ printf "driver and executor must run as %s" $s.serviceAccount | quote }}
+    - expression: "!(has(variables.spec.driver.template) && has(variables.spec.driver.template.spec) && has(variables.spec.driver.template.spec.serviceAccountName)) && !(has(variables.spec.executor.template) && has(variables.spec.executor.template.spec) && has(variables.spec.executor.template.spec.serviceAccountName))"
+      message: "pod templates must not set serviceAccountName"
+    - expression: "!has(variables.spec.deps) && (!has(variables.spec.sparkConf) || variables.spec.sparkConf.all(k, !k.startsWith('spark.kubernetes.authenticate') && !k.contains('serviceAccount') && !k.contains('podTemplate') && !k.startsWith('spark.jars') && !k.startsWith('spark.submit.pyFiles')))"
+      message: "no extra dependencies, and no Spark settings for identity, pod templates or extra code"
+{{- end }}

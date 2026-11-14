@@ -1,0 +1,21 @@
+# staging on AWS: applied after values/aws.yaml. Production shape at reduced scale.
+global:
+  environment: staging
+  imageTag: "0.1.0"
+
+flink-jobs:
+  parallelism: 4
+  taskManager:
+    memory: 4096m
+    cpu: 2
+  storage:
+    checkpointsDir: s3://lakehouse-staging-checkpoints/flink/checkpoints
+    savepointsDir: s3://lakehouse-staging-checkpoints/flink/savepoints
+  highAvailability:
+    enabled: true
+    storageDir: s3://lakehouse-staging-checkpoints/flink/ha
+
+ingestion-service:
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 6

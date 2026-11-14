@@ -1,0 +1,51 @@
+# Defaults match the local kind deployment; environment files in helm/values override them.
+namespace: apps
+
+replicaCount: 2
+
+image:
+  repository: lakehouse/ingestion-service
+  tag: ""          # empty: use global.imageTag
+
+topic: events.raw
+# Kafka identity (a KafkaUser in helm/charts/kafka-cluster); its certificate is mounted for mutual TLS.
+kafkaUser: ingestion-service
+maxInFlight: 10000
+# G1 explicitly: under 2 CPUs or 1792 MiB the JVM picks SerialGC. JFR runs continuously (jcmd 1 JFR.dump).
+javaOpts: >-
+  -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -XX:+UseG1GC
+  -XX:StartFlightRecording=name=continuous,settings=default,disk=true,maxage=30m,maxsize=256m
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 768Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+# When enabled the Deployment no longer sets replicas, so the HPA owns the count.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  minAvailable: 1
+
+topologySpread:
+  # ScheduleAnyway locally (3 zones, few nodes); DoNotSchedule is safer on a real multi-AZ cluster.
+  whenUnsatisfiable: ScheduleAnyway
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+
+extraEnv: []
+
+# OpenTelemetry traces over OTLP to Alloy, then Tempo; sampler ratio 1.0 locally, lower under real load.
+tracing:
+  enabled: true
+  endpoint: http://alloy.observability.svc:4318
+  sampleRatio: "1.0"

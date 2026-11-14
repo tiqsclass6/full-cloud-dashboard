@@ -1,0 +1,49 @@
+# Kyverno (chart 3.9.2, Kyverno 1.19.2) on kind; the policies live in helm/charts/policies.
+admissionController:
+  serviceMonitor:
+    enabled: true          # admission latency, policy results
+  replicas: 1
+  container:
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 512Mi}
+  # Admission checks that a generating policy's targets are readable before accepting it.
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [""]
+          resources: [secrets]
+          verbs: [get, list, watch]
+
+backgroundController:
+  serviceMonitor:
+    enabled: true          # generate/sync requests (Kafka certificate copies)
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  # Generate rules clone the Kafka client certificates into the client namespaces.
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [""]
+          resources: [secrets]
+          verbs: [get, list, watch, create, update, patch, delete]
+
+reportsController:
+  serviceMonitor:
+    enabled: true
+  # Reads the resources the policies match (secrets, for the generating policy) to report on them.
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [""]
+          resources: [secrets]
+          verbs: [get, list, watch]
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+cleanupController:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 128Mi}

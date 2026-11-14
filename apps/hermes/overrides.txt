@@ -1,0 +1,7 @@
+# Security overrides for hermes-agent's exact pins (Trivy); drop entries once hermes-agent fixes them.
+certifi==2026.10.18        # GHSA-6q48-6c7w-9gw2
+pillow==13.0.0             # CVE-2026-112393 and others (image tools are disabled, but the library ships)
+pyjwt==2.15.1              # CVE-2026-102268 and others
+cryptography==50.0.2       # CVE-2026-69247, CVE-2026-69249, GHSA-537c-gmf6-5ccf
+mcp==1.30.0                # CVE-2026-52869, CVE-2026-52870, CVE-2026-59950 (stays on the 1.x line Hermes uses)
+starlette==1.8.0           # CVE-2026-48818, CVE-2026-54283

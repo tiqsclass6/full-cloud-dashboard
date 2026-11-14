@@ -1,0 +1,34 @@
+{{- $root := . -}}
+{{- range $name, $user := .Values.users }}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: {{ $name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    strimzi.io/cluster: {{ $root.Values.clusterName }}
+    {{- include "lakehouse.stableLabels" (dict "root" $root "name" "kafka-users") | nindent 4 }}
+spec:
+  authentication:
+    type: tls
+  {{- if $user.acls }}
+  authorization:
+    type: simple
+    acls:
+      {{- range $user.acls }}
+      - resource:
+          {{- toYaml .resource | nindent 10 }}
+        operations:
+          {{- toYaml .operations | nindent 10 }}
+        host: "*"
+      {{- end }}
+  {{- end }}
+  {{- if $user.shareWithClients }}
+  template:
+    secret:
+      metadata:
+        labels:
+          {{ $root.Values.shareLabel }}: "true"
+  {{- end }}
+{{- end }}

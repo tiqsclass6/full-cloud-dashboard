@@ -1,0 +1,58 @@
+# Defaults match the local kind deployment; environment files in helm/values override them.
+namespace: apps
+name: events-to-iceberg
+
+image:
+  repository: lakehouse/flink-iceberg-job
+  tag: ""          # empty: use global.imageTag
+
+flinkVersion: v2_1
+serviceAccount: flink
+# Kafka identity (a KafkaUser in helm/charts/kafka-cluster); its certificate is mounted for mutual TLS.
+kafkaUser: events-to-iceberg
+parallelism: 2
+taskSlots: 2
+# savepoint: the operator stops the job with a savepoint on every spec change and restores from it.
+upgradeMode: savepoint
+restartFailedJob: true
+dedupeTtlMinutes: 60
+
+checkpointing:
+  interval: 10s          # also bounds table freshness (the sink commits once per checkpoint)
+  minPause: 2s
+  timeout: 2min
+  tolerableFailures: 3
+
+# hashmap takes full snapshots; rocksdb with incremental checkpoints scales to large de-dup state.
+stateBackend:
+  type: hashmap
+  incremental: false
+
+storage:
+  checkpointsDir: s3://checkpoints/flink/checkpoints
+  savepointsDir: s3://checkpoints/flink/savepoints
+
+# Static keys for the local S3 stand-in only (throwaway). Leave empty on AWS: IRSA supplies credentials.
+s3StaticKeys:
+  accessKey: ""
+  secretKey: ""
+
+jobManager:
+  memory: 1024m
+  cpu: 0.5
+taskManager:
+  memory: 2048m
+  cpu: 1
+
+# Failover and FAILED-job recovery resume from the latest checkpoint; required by restartFailedJob.
+highAvailability:
+  enabled: true
+  storageDir: s3://checkpoints/flink/ha
+
+extraFlinkConfiguration: {}
+
+# Prometheus metrics (Flink's Prometheus reporter) and the PodMonitor that scrapes them.
+metrics:
+  enabled: true
+  port: 9249
+  interval: 15s

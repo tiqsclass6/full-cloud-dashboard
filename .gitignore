@@ -1,0 +1,64 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.tfstate.lock.info
+*tfplan*
+.terraformrc
+terraform.rc
+# NOTE: .terraform.lock.hcl is intentionally committed (provider pinning)
+
+# Secrets / keys
+*.pem
+.env
+.env.*
+!.env.example
+# Local-only credentials (Slack tokens for the ops agent: docs/ai-ops.md)
+local/secrets/
+
+# Build output
+build/
+.gradle/
+out/
+target/
+*.class
+*.jar
+!**/gradle/wrapper/gradle-wrapper.jar
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Packaged artifacts
+*.zip
+
+# Raw Java Flight Recordings (large); summaries live in docs/performance/results
+*.jfr
+docs/performance/data/
+
+# GitOps snapshot mirror (a separate Git directory pushed to the in-cluster Gitea)
+.gitops-mirror/
+
+# Account-specific values from Terraform (aws-values.sh): pushed to the cluster's Gitea, never committed.
+helm/values/generated/
+gitops/operators/*/generated-*.yaml
+
+# Local guidance for Claude Code; not part of the repository
+CLAUDE.md

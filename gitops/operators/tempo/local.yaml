@@ -1,0 +1,30 @@
+# Tempo (chart grafana/tempo 1.24.4, Tempo 2.9), single binary. Span metrics go to Prometheus.
+tempo:
+  retention: 72h
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+  metricsGenerator:
+    enabled: true
+    remoteWriteUrl: http://kps-prometheus.monitoring.svc:9090/api/v1/write
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 768Mi}
+
+persistence:
+  enabled: true
+  size: 10Gi
+
+serviceMonitor:
+  enabled: true

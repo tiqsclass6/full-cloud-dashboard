@@ -1,0 +1,26 @@
+{
+  "receiver": "ops-agent",
+  "status": "firing",
+  "groupKey": "capture/zone-outage",
+  "commonLabels": {
+    "alertname": "KafkaBrokerDown",
+    "severity": "critical"
+  },
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "KafkaBrokerDown",
+        "prometheus": "monitoring/kps-prometheus",
+        "severity": "critical"
+      },
+      "annotations": {
+        "description": "Only 2 of 3 brokers are reachable; the cluster tolerates one loss.",
+        "runbook_url": "docs/runbooks/kafka.md#kafkabrokerdown",
+        "summary": "A Kafka broker is down"
+      },
+      "startsAt": "2026-11-01T08:21:48.794Z",
+      "fingerprint": "056e94b12bd66d47"
+    }
+  ]
+}

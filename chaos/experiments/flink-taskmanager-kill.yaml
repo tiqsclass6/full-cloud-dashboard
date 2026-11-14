@@ -1,0 +1,14 @@
+# A TaskManager killed under load: the job restarts from its checkpoint, every event lands exactly once.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: flink-taskmanager-kill
+  namespace: apps
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces: [apps]
+    labelSelectors:
+      app: events-to-iceberg
+      component: taskmanager

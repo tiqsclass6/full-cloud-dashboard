@@ -1,0 +1,50 @@
+# Argo CD for kind (chart argo/argo-cd 10.11.6, v3.5.6), installed by local/scripts/gitops-bootstrap.sh.
+global:
+  domain: argocd.local
+
+configs:
+  params:
+    server.insecure: true                  # plain HTTP behind kubectl port-forward, local only
+    controller.diff.server.side: "true"    # server-side diff: fewer false "out of sync" results
+  cm:
+    timeout.reconciliation: 60s            # poll Git every minute (no webhooks from in-cluster Gitea)
+    admin.enabled: true
+
+dex:
+  enabled: false
+notifications:
+  enabled: false
+
+# Metrics for the sync and health dashboard and the GitOps alerts (observability/).
+controller:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+repoServer:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
+server:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+applicationSet:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+redis:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}

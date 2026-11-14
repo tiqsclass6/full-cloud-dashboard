@@ -1,0 +1,25 @@
+# Defaults match the local kind deployment; environment files in helm/values override them.
+namespace: apps
+
+image:
+  repository: lakehouse/iceberg-exporter
+  tag: ""          # empty: use global.imageTag
+
+# On AWS it carries the exporter's read-only IRSA role.
+serviceAccount:
+  name: iceberg-exporter
+  annotations: {}
+
+tables: [lakehouse.events, lakehouse.events_hourly]
+intervalSeconds: 60
+smallFileBytes: 33554432          # 32 MiB: a quarter of the compaction target, as in the Spark job
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 192Mi
+  limits:
+    memory: 384Mi
+
+serviceMonitor:
+  interval: 30s

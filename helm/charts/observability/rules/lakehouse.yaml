@@ -1,0 +1,88 @@
+# Iceberg table health, the Spark maintenance jobs, Argo CD and External Secrets.
+groups:
+  - name: iceberg
+    rules:
+      - alert: IcebergExporterDown
+        expr: |
+          iceberg_table_up == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Table health for {{ $labels.table }} is not being measured
+          description: The exporter cannot load the table; the other Iceberg alerts are blind for it.
+          runbook_url: docs/runbooks/lakehouse.md#icebergexporterdown
+      - alert: IcebergSmallFilesHigh
+        expr: |
+          iceberg_table_small_data_files > 1000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.table }} has many small files"
+          description: "{{ $value }} files under 32 MiB slow down every scan; compaction is not keeping up."
+          runbook_url: docs/runbooks/lakehouse.md#icebergsmallfileshigh
+      - alert: IcebergCompactionOverdue
+        # NaN (never compacted) does not compare, so a brand-new table cannot fire this.
+        expr: |
+          (time() - iceberg_table_last_compaction_timestamp_seconds > 6 * 3600)
+          and on (table) iceberg_table_small_data_files > 100
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.table }} has not been compacted for over 6 hours"
+          description: The hourly compaction job is not running or not succeeding.
+          runbook_url: docs/runbooks/lakehouse.md#icebergcompactionoverdue
+      - alert: IcebergSnapshotsAccumulating
+        expr: |
+          iceberg_table_snapshots > 2000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.table }} keeps {{ $value }} snapshots"
+          description: Snapshot expiry is not running; metadata grows and old data files are never deleted.
+          runbook_url: docs/runbooks/lakehouse.md#icebergsnapshotsaccumulating
+
+  - name: platform
+    rules:
+      - alert: SparkJobFailed
+        expr: |
+          increase(spark_application_failure_count[1h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A Spark job failed
+          description: "{{ $value | humanize }} Spark application(s) failed in the last hour."
+          runbook_url: docs/runbooks/lakehouse.md#sparkjobfailed
+      - alert: ArgoCDAppOutOfSync
+        expr: |
+          argocd_app_info{sync_status!="Synced"} == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Argo CD application {{ $labels.name }} is {{ $labels.sync_status }}"
+          description: The cluster differs from Git for 15 minutes (a failing sync, or sync paused).
+          runbook_url: docs/runbooks/platform.md#argocdappoutofsync
+      - alert: ArgoCDAppDegraded
+        expr: |
+          argocd_app_info{health_status="Degraded"} == 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Argo CD application {{ $labels.name }} is Degraded"
+          description: One or more of its resources are unhealthy.
+          runbook_url: docs/runbooks/platform.md#argocdappdegraded
+      - alert: ExternalSecretNotReady
+        expr: |
+          externalsecret_status_condition{condition="Ready", status="False"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ExternalSecret {{ $labels.namespace }}/{{ $labels.name }} is not syncing"
+          description: The Kubernetes Secret no longer follows Secrets Manager (credentials may go stale).
+          runbook_url: docs/runbooks/platform.md#externalsecretnotready

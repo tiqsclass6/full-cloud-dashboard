@@ -1,0 +1,50 @@
+{{- $iv := .Values.imageVerification -}}
+{{- if $iv.enabled }}
+{{- $ctx := dict "root" $ "name" "policies" -}}
+{{- include "lakehouse.required" (dict "root" $ "key" "policies.imageVerification.publicKey" "value" $iv.publicKey) }}
+{{- include "lakehouse.required" (dict "root" $ "key" "policies.imageVerification.imageGlob" "value" $iv.imageGlob) }}
+# Only images signed with the platform's KMS key may run from its repositories; no transparency log, so that check is off.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-image-signatures
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: Verify platform image signatures
+    policies.kyverno.io/description: >-
+      Pods in the platform namespaces may run images from the platform's ECR repositories only if
+      they carry a valid Cosign signature from the platform's signing key.
+spec:
+  validationActions: [{{ ternary "Deny" "Audit" $.Values.validation.enforce }}]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: {{ toJson $.Values.validation.platformNamespaces }}
+  matchImageReferences:
+    - glob: {{ $iv.imageGlob | quote }}
+  credentials:
+    providers: [amazon]        # ECR, through Kyverno's IRSA role (read-only on the platform repositories)
+  validationConfigurations:
+    required: true
+    verifyDigest: true         # the signature covers the digest, so a re-tagged image does not pass
+  attestors:
+    - name: platform
+      cosign:
+        key:
+          data: |
+            {{- $iv.publicKey | trim | nindent 12 }}
+        ctlog:
+          insecureIgnoreTlog: true
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.platform])).all(e, e > 0)
+      message: image is not signed with the platform's signing key
+{{- end }}

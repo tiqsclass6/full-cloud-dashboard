@@ -1,0 +1,121 @@
+# Local (kind) overrides; AWS: aws.yaml. Dev-only Grafana password; never reuse.
+fullnameOverride: kps
+
+defaultRules:
+  create: true
+  # kind only: VM clock corrections shift process_start_time_seconds, which this rule reads as restarts.
+  disabled:
+    AlertmanagerClusterCrashlooping: true
+
+prometheus:
+  prometheusSpec:
+    # Tempo's metrics generator writes span metrics (service graph, request rates) here.
+    enableRemoteWriteReceiver: true
+    retention: 2d
+    # Pick up every ServiceMonitor/PodMonitor/PrometheusRule/Probe, not only Helm-labelled ones.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 768Mi
+      limits:
+        memory: 1536Mi
+
+alertmanager:
+  # Alerts go to the ops agent; its own alerts carry ops_agent="skip" and never go back to it.
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      routes:
+        - receiver: "null"
+          matchers: ['alertname =~ "Watchdog|InfoInhibitor"']
+        - receiver: "null"
+          matchers: ['ops_agent = "skip"']
+        - receiver: ops-agent
+          matchers: ['severity =~ "critical|warning"']
+    receivers:
+      - name: "null"
+      - name: ops-agent
+        webhook_configs:
+          - url: http://ops-agent.ai-ops.svc:8080/v1/alertmanager
+            send_resolved: false
+            max_alerts: 20
+    inhibit_rules:
+      - source_matchers: ['severity = critical']
+        target_matchers: ['severity =~ warning|info']
+        equal: [namespace, alertname]
+      - source_matchers: ['severity = warning']
+        target_matchers: ['severity = info']
+        equal: [namespace, alertname]
+      - source_matchers: ['alertname = InfoInhibitor']
+        target_matchers: ['severity = info']
+        equal: [namespace]
+      - target_matchers: ['alertname = InfoInhibitor']
+    templates:
+      - /etc/alertmanager/config/*.tmpl
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+
+grafana:
+  # Logs and traces linked both ways (trace id in a log line, span to the pod's logs).
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      url: http://loki.observability.svc:3100
+      jsonData:
+        derivedFields:
+          - name: trace_id
+            matcherType: label
+            matcherRegex: trace_id
+            datasourceUid: tempo
+            url: "$${__value.raw}"
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      url: http://tempo.observability.svc:3200
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          filterByTraceID: true
+          customQuery: false
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+  adminPassword: admin-local-dev
+  defaultDashboardsTimezone: utc
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+
+# kind does not expose these control-plane endpoints to Prometheus.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+

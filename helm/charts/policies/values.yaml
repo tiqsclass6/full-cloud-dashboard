@@ -1,0 +1,33 @@
+# Kyverno policies. Requires the Kyverno operator (gitops/operators/kyverno).
+
+# Secrets with the share label are cloned into the client namespaces and kept in sync through renewals.
+kafkaSecrets:
+  sourceNamespace: kafka
+  targetNamespaces: [apps]
+  shareLabel: lakehouse.io/share-with-clients
+
+# Enforced in the platform namespaces, audited elsewhere except auditExcludedNamespaces.
+validation:
+  enforce: true              # false: Audit only (roll out new rules this way and read the reports first)
+  platformNamespaces: [apps, data, kafka, ai-ops]
+  auditExcludedNamespaces: [kube-system, kube-public, kube-node-lease, kyverno, local-path-storage]
+  # String prefixes; Docker Hub images appear with and without docker.io/, so both are listed.
+  allowedImagePrefixes:
+    - "quay.io/strimzi/"                       # Kafka, Strimzi operators, admin toolbox
+    - "apicurio/apicurio-registry:"
+    - "docker.io/apicurio/apicurio-registry:"
+  extraAllowedImagePrefixes: []              # per environment (local images; the ECR registry on AWS)
+
+# The one-off Spark runs ops-control may start (it copies a schedule's template; ai-ops-access grants create).
+opsControlSpark:
+  enabled: true
+  user: system:serviceaccount:ai-ops:ops-control
+  serviceAccount: spark-operator-spark
+  image: spark-jobs                  # under a project prefix (ending lakehouse/) from validation's image lists
+  applicationPrefix: local:///opt/jobs/
+
+# AWS only (signed in ECR with KMS); the key and repository glob come from helm/values/generated/<env>.yaml.
+imageVerification:
+  enabled: false
+  imageGlob: ""              # e.g. <account>.dkr.ecr.us-east-1.amazonaws.com/lakehouse/*
+  publicKey: ""              # PEM

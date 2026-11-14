@@ -1,0 +1,13 @@
+# Flink Kubernetes Operator on EKS. The job service account gets an IAM role (IRSA) for S3 access.
+watchNamespaces:
+  - apps
+webhook:
+  create: false
+jobServiceAccount:
+  annotations:
+    "helm.sh/resource-policy": keep    # the chart default; overriding the map would otherwise drop it
+    eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/lakehouse-flink-jobs   # placeholder until Phase 6
+operatorPod:
+  resources:
+    requests: {cpu: 200m, memory: 768Mi}
+    limits: {memory: 1Gi}

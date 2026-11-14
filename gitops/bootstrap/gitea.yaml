@@ -1,0 +1,107 @@
+# In-cluster Git that Argo CD pulls from (ADR 0006/0007): plain HTTP, ClusterIP only, filled by make gitops-push.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops
+  labels:
+    app.kubernetes.io/part-of: lakehouse
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitea-data
+  namespace: gitops
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: gitops
+  labels:
+    app: gitea
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate        # one pod owns the volume
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gitea
+          image: gitea/gitea:28.2.0-rootless
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - {name: GITEA__database__DB_TYPE, value: sqlite3}
+            - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+            - {name: GITEA__server__HTTP_PORT, value: "3000"}
+            - {name: GITEA__server__ROOT_URL, value: "http://gitea-http.gitops.svc.cluster.local:3000/"}
+            - {name: GITEA__server__DISABLE_SSH, value: "true"}
+            - {name: GITEA__service__DISABLE_REGISTRATION, value: "true"}
+            - {name: GITEA__repository__ENABLE_PUSH_CREATE_USER, value: "true"}
+            - {name: GITEA__repository__DEFAULT_PUSH_CREATE_PRIVATE, value: "false"}
+            - {name: GITEA__repository__DEFAULT_BRANCH, value: main}
+            - {name: GITEA__log__LEVEL, value: Warn}
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/gitea
+              subPath: data
+            - name: data
+              mountPath: /etc/gitea
+              subPath: config
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gitea-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-http
+  namespace: gitops
+  labels:
+    app: gitea
+spec:
+  selector:
+    app: gitea
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

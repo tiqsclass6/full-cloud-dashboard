@@ -1,0 +1,124 @@
+# kube-prometheus-stack on EKS (dev, staging, prod).
+fullnameOverride: kps
+
+prometheus:
+  prometheusSpec:
+    # Tempo's metrics generator writes span metrics (service graph, request rates) here.
+    enableRemoteWriteReceiver: true
+    retention: 15d
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          resources:
+            requests:
+              storage: 50Gi
+    resources:
+      requests: {cpu: 500m, memory: 2Gi}
+      limits: {memory: 4Gi}
+
+# Two Alertmanagers in different zones: the zone-outage experiment found the single replica on the failed node.
+alertmanager:
+  # Alerts go to the ops agent; its own alerts carry ops_agent="skip" and never go back to it.
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      routes:
+        - receiver: "null"
+          matchers: ['alertname =~ "Watchdog|InfoInhibitor"']
+        - receiver: "null"
+          matchers: ['ops_agent = "skip"']
+        - receiver: ops-agent
+          matchers: ['severity =~ "critical|warning"']
+    receivers:
+      - name: "null"
+      - name: ops-agent
+        webhook_configs:
+          - url: http://ops-agent.ai-ops.svc:8080/v1/alertmanager
+            send_resolved: false
+            max_alerts: 20
+    inhibit_rules:
+      - source_matchers: ['severity = critical']
+        target_matchers: ['severity =~ warning|info']
+        equal: [namespace, alertname]
+      - source_matchers: ['severity = warning']
+        target_matchers: ['severity = info']
+        equal: [namespace, alertname]
+      - source_matchers: ['alertname = InfoInhibitor']
+        target_matchers: ['severity = info']
+        equal: [namespace]
+      - target_matchers: ['alertname = InfoInhibitor']
+    templates:
+      - /etc/alertmanager/config/*.tmpl
+  alertmanagerSpec:
+    replicas: 2
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: alertmanager
+    resources:
+      requests: {cpu: 25m, memory: 64Mi}
+      limits: {memory: 256Mi}
+
+grafana:
+  # Logs and traces linked both ways (trace id in a log line, span to the pod's logs).
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      url: http://loki.observability.svc:3100
+      jsonData:
+        derivedFields:
+          - name: trace_id
+            matcherType: label
+            matcherRegex: trace_id
+            datasourceUid: tempo
+            url: "$${__value.raw}"
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      url: http://tempo.observability.svc:3200
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          filterByTraceID: true
+          customQuery: false
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+  # The admin password comes from a Secret synced from Secrets Manager, never from Git.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  defaultDashboardsTimezone: utc
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+
+# EKS does not expose these control-plane components.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+

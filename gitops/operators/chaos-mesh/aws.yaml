@@ -1,0 +1,20 @@
+# Chaos Mesh 2.8.5 on EKS: experiments come only from chaos-run.sh; faults only in namespaces annotated chaos-mesh.org/inject=enabled.
+controllerManager:
+  replicaCount: 2
+  enableFilterNamespace: true
+  resources:
+    requests: {cpu: 25m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+chaosDaemon:
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+dashboard:
+  create: false
+
+dnsServer:
+  create: false

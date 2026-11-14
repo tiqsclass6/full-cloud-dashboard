@@ -1,0 +1,10 @@
+apiVersion: v2
+name: observability
+description: The platform's alert and recording rules (SLOs) and Grafana dashboards, as code.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: lakehouse-lib
+    version: 0.1.0
+    repository: file://../lakehouse-lib

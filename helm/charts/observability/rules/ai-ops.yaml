@@ -1,0 +1,46 @@
+# The ops agent itself; every alert carries ops_agent="skip" so it never goes to the agent.
+groups:
+  - name: ai-ops
+    rules:
+      - alert: OpsAgentComponentDown
+        expr: |
+          up{namespace="ai-ops", job=~"ops-agent|ops-control|mcp-platform-tools"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          ops_agent: skip
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: Alerts are not being investigated, or approvals cannot be given, while it is down.
+          runbook_url: docs/runbooks/ai-ops.md#opsagentcomponentdown
+      - alert: OpsAgentInvestigationsFailing
+        # Any outcome but a diagnosis: model errors, refusals, output that failed validation.
+        expr: |
+          sum(increase(ops_agent_investigations_total{outcome!="diagnosed"}[1h])) >= 2
+        labels:
+          severity: warning
+          ops_agent: skip
+        annotations:
+          summary: The ops agent failed {{ $value }} investigations in the last hour
+          description: Alerts are reaching nobody but the dashboards; check the agent's logs for the outcome.
+          runbook_url: docs/runbooks/ai-ops.md#opsagentinvestigationsfailing
+      - alert: OpsAgentAlertsDropped
+        expr: |
+          sum(increase(ops_agent_webhooks_total{decision=~"rate_limited|queue_full"}[1h])) > 0
+        labels:
+          severity: warning
+          ops_agent: skip
+        annotations:
+          summary: The ops agent skipped alerts because of its hourly budget
+          description: More alert groups arrived than the agent may investigate per hour; some were not investigated.
+          runbook_url: docs/runbooks/ai-ops.md#opsagentalertsdropped
+      - alert: OpsControlActionFailed
+        expr: |
+          sum by (action) (increase(ops_control_actions_total{result="failed"}[1h])) > 0
+        labels:
+          severity: warning
+          ops_agent: skip
+        annotations:
+          summary: An approved {{ $labels.action }} action failed
+          description: A person approved it, and it did not complete; the result is in the Slack thread and the audit log.
+          runbook_url: docs/runbooks/ai-ops.md#opscontrolactionfailed

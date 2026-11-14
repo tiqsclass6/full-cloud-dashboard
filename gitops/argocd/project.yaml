@@ -1,0 +1,87 @@
+# Least privilege per layer: platform-operators (CRDs, webhooks), lakehouse (namespaced workloads), ai-ops-access (RBAC).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-operators
+  namespace: argocd
+spec:
+  description: Upstream operators and observability (kube-prometheus-stack, Strimzi, Flink, Spark, Kyverno, External Secrets, Loki, Tempo, Alloy, Chaos Mesh, Langfuse, AWS Load Balancer Controller)
+  sourceRepos:
+    - http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git   # values files only
+    - https://prometheus-community.github.io/helm-charts
+    - https://strimzi.io/charts/
+    - https://downloads.apache.org/flink/flink-kubernetes-operator-1.16.1/
+    - https://kubeflow.github.io/spark-operator
+    - https://kyverno.github.io/kyverno/
+    - https://charts.external-secrets.io
+    - https://grafana.github.io/helm-charts
+    - https://charts.chaos-mesh.org
+    - https://langfuse.github.io/langfuse-k8s
+    - https://aws.github.io/eks-charts
+  destinations:
+    - {server: "*", namespace: monitoring}
+    - {server: "*", namespace: kube-system}        # kube-prometheus-stack: kubelet and control-plane Services
+    - {server: "*", namespace: kafka}
+    - {server: "*", namespace: flink-operator}
+    - {server: "*", namespace: spark-operator}
+    - {server: "*", namespace: kyverno}
+    - {server: "*", namespace: external-secrets}
+    - {server: "*", namespace: observability}       # Loki, Tempo, Alloy
+    - {server: "*", namespace: chaos-mesh}          # chaos experiments (applied on demand, not by Argo CD)
+    - {server: "*", namespace: langfuse}            # LLM tracing for the ops agent (local clusters)
+    - {server: "*", namespace: apps}               # Flink and Spark job service accounts and roles
+  clusterResourceWhitelist:
+    - {group: "", kind: Namespace}
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+    - {group: admissionregistration.k8s.io, kind: MutatingWebhookConfiguration}
+    - {group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration}
+  namespaceResourceWhitelist:
+    - {group: "*", kind: "*"}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: lakehouse
+  namespace: argocd
+spec:
+  description: The lakehouse platform's own charts (helm/charts/platform)
+  sourceRepos:
+    - http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+  destinations:
+    - {server: "*", namespace: apps}
+    - {server: "*", namespace: data}
+    - {server: "*", namespace: kafka}
+    - {server: "*", namespace: ai-ops}            # the ops agent (its RBAC: ai-ops-access.yaml)
+    - {server: "*", namespace: monitoring}         # monitors, alert rules and dashboards only (see below)
+  # Cluster-scoped: the platform namespaces and the Kyverno policies, nothing else (no RBAC, no CRDs).
+  clusterResourceWhitelist:
+    - {group: "", kind: Namespace}
+    - {group: policies.kyverno.io, kind: GeneratingPolicy}
+    - {group: policies.kyverno.io, kind: ValidatingPolicy}
+    - {group: policies.kyverno.io, kind: ImageValidatingPolicy}   # AWS only (signature verification)
+    - {group: external-secrets.io, kind: ClusterSecretStore}
+  # Namespaced: the kinds the charts render. Roles and RoleBindings are deliberately absent.
+  namespaceResourceWhitelist:
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: Secret}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: batch, kind: Job}
+    - {group: autoscaling, kind: HorizontalPodAutoscaler}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: monitoring.coreos.com, kind: PodMonitor}
+    - {group: monitoring.coreos.com, kind: ServiceMonitor}
+    - {group: monitoring.coreos.com, kind: PrometheusRule}
+    - {group: kafka.strimzi.io, kind: Kafka}
+    - {group: kafka.strimzi.io, kind: KafkaNodePool}
+    - {group: kafka.strimzi.io, kind: KafkaTopic}
+    - {group: kafka.strimzi.io, kind: KafkaUser}
+    - {group: flink.apache.org, kind: FlinkDeployment}
+    - {group: sparkoperator.k8s.io, kind: ScheduledSparkApplication}
+    - {group: external-secrets.io, kind: ExternalSecret}

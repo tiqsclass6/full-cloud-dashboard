@@ -1,0 +1,73 @@
+# SLO: 99.5% of /v1/events succeed over 28 days (multi-window burn rates); or vector(0) keeps the ratio 0 with no failures.
+groups:
+  - name: slo-ingest-recording
+    interval: 30s
+    rules:
+      - record: slo:ingest_requests:error_ratio_rate5m
+        expr: |
+          (sum(rate(ingest_requests_total{outcome=~"overloaded|failed|error"}[5m])) or vector(0))
+          / sum(rate(ingest_requests_total[5m]))
+      - record: slo:ingest_requests:error_ratio_rate30m
+        expr: |
+          (sum(rate(ingest_requests_total{outcome=~"overloaded|failed|error"}[30m])) or vector(0))
+          / sum(rate(ingest_requests_total[30m]))
+      - record: slo:ingest_requests:error_ratio_rate1h
+        expr: |
+          (sum(rate(ingest_requests_total{outcome=~"overloaded|failed|error"}[1h])) or vector(0))
+          / sum(rate(ingest_requests_total[1h]))
+      - record: slo:ingest_requests:error_ratio_rate2h
+        expr: |
+          (sum(rate(ingest_requests_total{outcome=~"overloaded|failed|error"}[2h])) or vector(0))
+          / sum(rate(ingest_requests_total[2h]))
+      - record: slo:ingest_requests:error_ratio_rate6h
+        expr: |
+          (sum(rate(ingest_requests_total{outcome=~"overloaded|failed|error"}[6h])) or vector(0))
+          / sum(rate(ingest_requests_total[6h]))
+      - record: slo:ingest_requests:error_ratio_rate1d
+        expr: |
+          (sum(rate(ingest_requests_total{outcome=~"overloaded|failed|error"}[1d])) or vector(0))
+          / sum(rate(ingest_requests_total[1d]))
+      - record: slo:ingest_requests:error_ratio_rate3d
+        expr: |
+          (sum(rate(ingest_requests_total{outcome=~"overloaded|failed|error"}[3d])) or vector(0))
+          / sum(rate(ingest_requests_total[3d]))
+
+  - name: slo-ingest-alerts
+    rules:
+      - alert: IngestErrorBudgetBurnFast
+        # 14.4x burns 2% of a 28-day budget in 1 hour; 6x burns 5% in 6 hours.
+        expr: |
+          (slo:ingest_requests:error_ratio_rate1h > (14.4 * 0.005) and slo:ingest_requests:error_ratio_rate5m > (14.4 * 0.005))
+          or
+          (slo:ingest_requests:error_ratio_rate6h > (6 * 0.005) and slo:ingest_requests:error_ratio_rate30m > (6 * 0.005))
+        labels:
+          severity: critical
+          slo: ingest-availability
+        annotations:
+          summary: Ingestion is failing requests fast enough to exhaust the error budget
+          description: "{{ $value | humanizePercentage }} of ingest requests are failing (budget 0.5%)."
+          runbook_url: docs/runbooks/ingestion.md#ingesterrorbudgetburnfast
+      - alert: IngestErrorBudgetBurnSlow
+        # 3x burns 10% of the budget in a day; 1x would use the whole budget over the window.
+        expr: |
+          (slo:ingest_requests:error_ratio_rate1d > (3 * 0.005) and slo:ingest_requests:error_ratio_rate2h > (3 * 0.005))
+          or
+          (slo:ingest_requests:error_ratio_rate3d > (1 * 0.005) and slo:ingest_requests:error_ratio_rate6h > (1 * 0.005))
+        labels:
+          severity: warning
+          slo: ingest-availability
+        annotations:
+          summary: Ingestion is slowly using up its error budget
+          description: "{{ $value | humanizePercentage }} of ingest requests are failing (budget 0.5%)."
+          runbook_url: docs/runbooks/ingestion.md#ingesterrorbudgetburnslow
+      - alert: IngestLatencyHigh
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(ingest_request_latency_seconds_bucket[5m]))) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          slo: ingest-latency
+        annotations:
+          summary: 99th percentile ingest latency above 500 ms
+          description: "p99 ingest latency is {{ $value | humanizeDuration }}."
+          runbook_url: docs/runbooks/ingestion.md#ingestlatencyhigh

@@ -1,0 +1,239 @@
+{{- $root := . -}}
+{{- $mcp := dict "root" $ "name" "mcp-platform-tools" -}}
+{{- $agent := dict "root" $ "name" "ops-agent" -}}
+{{- $control := dict "root" $ "name" "ops-control" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-platform-tools
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $mcp | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $mcp | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lakehouse.labels" $mcp | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.mcp.serviceAccount }}
+      securityContext:
+        {{- include "lakehouse.podSecurityContext" (dict "uid" 10001) | nindent 8 }}
+      containers:
+        - name: mcp-platform-tools
+          image: {{ include "lakehouse.image" (dict "root" $ "image" .Values.mcpImage) }}
+          imagePullPolicy: {{ include "lakehouse.imagePullPolicy" $mcp }}
+          ports:
+            - {name: http, containerPort: 8080}
+            {{- if .Values.mcp.vpcEndpoint.enabled }}
+            - {name: https, containerPort: 8443}
+            {{- end }}
+          env:
+            - {name: PROMETHEUS_URL, value: {{ .Values.mcp.prometheusUrl | quote }}}
+            - {name: ALERTMANAGER_URL, value: {{ .Values.mcp.alertmanagerUrl | quote }}}
+            - {name: LOKI_URL, value: {{ .Values.mcp.lokiUrl | quote }}}
+            - {name: ALLOWED_NAMESPACES, value: {{ join "," .Values.mcp.readNamespaces | quote }}}
+            - name: MCP_ALLOWED_HOSTS
+              value: "mcp-platform-tools.{{ .Values.namespace }}.svc:8080,mcp-platform-tools.{{ .Values.namespace }}.svc.cluster.local:8080,localhost:*,127.0.0.1:*{{ if .Values.mcp.vpcEndpoint.enabled }},{{ .Values.mcp.vpcEndpoint.hostname }},{{ .Values.mcp.vpcEndpoint.hostname }}:443{{ end }}"
+            {{- if .Values.mcp.vpcEndpoint.enabled }}
+            - {name: TLS_CERT_FILE, value: /etc/mcp-tls/tls.crt}
+            - {name: TLS_KEY_FILE, value: /etc/mcp-tls/tls.key}
+            - {name: TLS_PORT, value: "8443"}
+            {{- end }}
+            {{- include "ai-ops.secretEnv" (dict "env" "MCP_TOKEN" "secret" .Values.secrets.internal) | nindent 12 }}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+          securityContext:
+            {{- include "lakehouse.containerSecurityContext" $mcp | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.mcp.vpcEndpoint.enabled }}
+            - {name: tls, mountPath: /etc/mcp-tls, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 32Mi}
+        {{- if .Values.mcp.vpcEndpoint.enabled }}
+        - name: tls
+          secret: {secretName: {{ .Values.mcp.vpcEndpoint.tlsSecret }}, optional: true}
+        {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-agent
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $agent | nindent 4 }}
+spec:
+  replicas: 1          # one replica: the de-duplication and hourly budget live in memory
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $agent | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lakehouse.labels" $agent | nindent 8 }}
+      annotations:
+        # Restart when the short-lived model credentials are refreshed (local/scripts/ai-creds.sh).
+        lakehouse.io/credentials-rotation: "manual"
+    spec:
+      serviceAccountName: {{ .Values.agent.serviceAccount.name }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "lakehouse.podSecurityContext" (dict "uid" 10001) | nindent 8 }}
+      containers:
+        - name: ops-agent
+          image: {{ include "lakehouse.image" (dict "root" $ "image" .Values.image) }}
+          imagePullPolicy: {{ include "lakehouse.imagePullPolicy" $agent }}
+          args: ["agent"]
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - {name: MODEL_ID, value: {{ .Values.model.id | quote }}}
+            - {name: FALLBACK_MODEL_ID, value: {{ .Values.model.fallbackId | quote }}}
+            - {name: AWS_REGION, value: {{ .Values.model.region | quote }}}
+            - {name: EFFORT, value: {{ .Values.model.effort | quote }}}
+            - {name: MAX_TURNS, value: {{ .Values.agent.maxTurns | quote }}}
+            - {name: MAX_TOOL_CALLS, value: {{ .Values.agent.maxToolCalls | quote }}}
+            - {name: MAX_INVESTIGATIONS_PER_HOUR, value: {{ .Values.agent.maxInvestigationsPerHour | quote }}}
+            - {name: DEDUPE_MINUTES, value: {{ .Values.agent.dedupeMinutes | quote }}}
+            - {name: SEVERITIES, value: {{ join "," .Values.agent.severities | quote }}}
+            - {name: MCP_URL, value: "http://mcp-platform-tools.{{ .Values.namespace }}.svc:8080/mcp"}
+            - {name: CONTROL_URL, value: "http://ops-control.{{ .Values.namespace }}.svc:8080"}
+            {{- with .Values.agent.agentcore.runtimeArn }}
+            - {name: AGENT_RUNTIME_ARN, value: {{ . | quote }}}
+            {{- end }}
+            {{- include "ai-ops.secretEnv" (dict "env" "MCP_TOKEN" "secret" .Values.secrets.internal) | nindent 12 }}
+            {{- include "ai-ops.secretEnv" (dict "env" "CONTROL_TOKEN" "secret" .Values.secrets.internal) | nindent 12 }}
+            # LLM tracing (Langfuse); without these keys the agent runs untraced.
+            {{- range list "LANGFUSE_PUBLIC_KEY" "LANGFUSE_SECRET_KEY" "LANGFUSE_BASE_URL" }}
+            {{- include "ai-ops.secretEnv" (dict "env" . "secret" $root.Values.secrets.langfuse "optional" true) | nindent 12 }}
+            {{- end }}
+            - {name: LANGFUSE_TRACING_ENVIRONMENT, value: {{ .Values.global.environment | default "local" | quote }}}
+            {{- if not .Values.agent.serviceAccount.annotations }}
+            # Local only: short-lived credentials for a role that may only invoke the two models.
+            {{- range list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "AWS_SESSION_TOKEN" }}
+            {{- include "ai-ops.secretEnv" (dict "env" . "secret" $root.Values.secrets.bedrock "optional" true) | nindent 12 }}
+            {{- end }}
+            {{- end }}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          securityContext:
+            {{- include "lakehouse.containerSecurityContext" $agent | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 32Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-control
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $control | nindent 4 }}
+spec:
+  replicas: 1          # one Slack Socket Mode connection; state is in Postgres
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $control | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lakehouse.labels" $control | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.control.serviceAccount }}
+      securityContext:
+        {{- include "lakehouse.podSecurityContext" (dict "uid" 10001) | nindent 8 }}
+      containers:
+        - name: ops-control
+          image: {{ include "lakehouse.image" (dict "root" $ "image" .Values.image) }}
+          imagePullPolicy: {{ include "lakehouse.imagePullPolicy" $control }}
+          args: ["control"]
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - name: DATABASE_URL
+              value: "host={{ .Values.database.host }} port={{ .Values.database.port }} dbname={{ .Values.database.name }} sslmode={{ .Values.database.sslmode }}"
+            {{- include "ai-ops.secretEnv" (dict "env" "PGUSER" "secret" .Values.database.credentialsSecret "key" .Values.database.usernameKey) | nindent 12 }}
+            {{- include "ai-ops.secretEnv" (dict "env" "PGPASSWORD" "secret" .Values.database.credentialsSecret "key" .Values.database.passwordKey) | nindent 12 }}
+            {{- include "ai-ops.secretEnv" (dict "env" "CONTROL_TOKEN" "secret" .Values.secrets.internal) | nindent 12 }}
+            {{- include "ai-ops.secretEnv" (dict "env" "ACTION_SIGNING_KEY" "secret" .Values.secrets.internal) | nindent 12 }}
+            {{- range list "SLACK_BOT_TOKEN" "SLACK_APP_TOKEN" "SLACK_CHANNEL" "APPROVERS" }}
+            {{- include "ai-ops.secretEnv" (dict "env" . "secret" $root.Values.secrets.slack "optional" true) | nindent 12 }}
+            {{- end }}
+            - {name: REQUIRED_APPROVALS, value: {{ .Values.control.requiredApprovals | quote }}}
+            - {name: APPROVAL_TTL_MINUTES, value: {{ .Values.control.approvalTtlMinutes | quote }}}
+            - {name: DRY_RUN, value: {{ .Values.control.dryRun | quote }}}
+            - {name: FLINK_NAMESPACE, value: {{ .Values.control.flink.namespace | quote }}}
+            - {name: FLINK_DEPLOYMENT, value: {{ .Values.control.flink.deployment | quote }}}
+            - {name: SPARK_NAMESPACE, value: {{ .Values.control.sparkNamespace | quote }}}
+            - {name: GRAFANA_URL, value: {{ .Values.control.grafanaUrl | quote }}}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.control.resources | nindent 12 }}
+          securityContext:
+            {{- include "lakehouse.containerSecurityContext" $control | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 32Mi}
+{{- range list $mcp $agent $control }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "lakehouse.selectorLabels" . | nindent 4 }}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ $root.Values.serviceMonitor.interval }}
+{{- end }}

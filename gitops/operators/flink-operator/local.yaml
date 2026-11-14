@@ -1,0 +1,15 @@
+# Flink Kubernetes Operator for kind; manages the FlinkDeployments in apps.
+watchNamespaces:
+  - apps
+
+# The admission webhook needs cert-manager; validation still runs inside the operator.
+webhook:
+  create: false
+
+operatorPod:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 768Mi

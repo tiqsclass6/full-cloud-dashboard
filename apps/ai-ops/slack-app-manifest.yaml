@@ -1,0 +1,22 @@
+# Slack app for ops-control approvals; setup steps in docs/ai-ops.md#slack.
+display_information:
+  name: Lakehouse Ops Agent
+  description: Alert diagnoses from the platform ops agent, with approval buttons for proposed fixes.
+  background_color: "#1d3557"
+features:
+  bot_user:
+    display_name: lakehouse-ops
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write            # post diagnoses and decisions
+      - channels:history      # re-read a posted message to remove its buttons after a decision
+      - groups:history        # the same, when the channel is private
+settings:
+  # Socket Mode: ops-control opens an outbound WebSocket; Slack never calls into the cluster.
+  socket_mode_enabled: true
+  interactivity:
+    is_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false

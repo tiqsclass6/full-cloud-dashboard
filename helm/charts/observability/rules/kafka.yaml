@@ -1,0 +1,54 @@
+# RF=3 and min.insync.replicas=2: one broker down is critical but survivable; a second loss stops writes.
+groups:
+  - name: kafka
+    rules:
+      - alert: KafkaBrokerDown
+        expr: |
+          count(up{job="monitoring/kafka-brokers"} == 1) < 3
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A Kafka broker is down
+          description: "Only {{ $value }} of 3 brokers are reachable; the cluster tolerates one loss."
+          runbook_url: docs/runbooks/kafka.md#kafkabrokerdown
+      - alert: KafkaUnderReplicatedPartitions
+        expr: |
+          sum(kafka_server_replicamanager_underreplicatedpartitions) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka partitions are under-replicated
+          description: "{{ $value }} partition replica(s) are behind their leader."
+          runbook_url: docs/runbooks/kafka.md#kafkaunderreplicatedpartitions
+      - alert: KafkaUnderMinIsr
+        expr: |
+          sum(kafka_server_replicamanager_underminisrpartitioncount) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kafka partitions are below min.insync.replicas
+          description: "{{ $value }} partition(s) reject acks=all writes; ingestion is failing for them."
+          runbook_url: docs/runbooks/kafka.md#kafkaunderminisr
+      - alert: KafkaOfflinePartitions
+        expr: |
+          max(kafka_controller_kafkacontroller_offlinepartitionscount) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kafka partitions have no leader
+          description: "{{ $value }} partition(s) are offline: neither readable nor writable."
+          runbook_url: docs/runbooks/kafka.md#kafkaofflinepartitions
+      - alert: KafkaNoActiveController
+        expr: |
+          sum(kafka_controller_kafkacontroller_activecontrollercount) != 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: The Kafka cluster has no single active controller
+          description: "{{ $value }} active controllers (expected exactly 1)."
+          runbook_url: docs/runbooks/kafka.md#kafkanoactivecontroller

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: ai-ops
+description: Platform ops agent - read-only MCP tools, alert triage with Claude, human-approved remediation.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: lakehouse-lib
+    version: 0.1.0
+    repository: file://../lakehouse-lib

@@ -1,0 +1,28 @@
+# gitops-root manages only Argo CD's own objects; default is emptied, so an app without a project cannot deploy.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: gitops-root
+  namespace: argocd
+spec:
+  description: "App of apps (gitops/argocd): projects and ApplicationSets"
+  sourceRepos:
+    - http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: argocd}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: argoproj.io, kind: AppProject}
+    - {group: argoproj.io, kind: ApplicationSet}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  description: "Locked down: every application names its own project"
+  sourceRepos: []
+  destinations: []
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: []

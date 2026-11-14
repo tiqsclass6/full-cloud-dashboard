@@ -1,0 +1,39 @@
+{
+  "experiment": "flink-taskmanager-kill",
+  "run_at": "2026-11-01T08:15:41Z",
+  "fault_seconds": 366,
+  "events_sent": 66000,
+  "retried_batches": 0,
+  "recovery_seconds": 217,
+  "max_consumer_lag": 2350,
+  "max_checkpoint_ms": 1570,
+  "alerts_fired": [
+    {
+      "alert": "OpsAgentInvestigationsFailing",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 64
+    },
+    {
+      "alert": "KafkaNoActiveController",
+      "seconds_after_fault_start": 486
+    }
+  ],
+  "expected_alerts": [],
+  "forbidden_alerts": [
+    "IcebergTableStale",
+    "FlinkCheckpointsStalled",
+    "FlinkJobNotRunning",
+    "IngestErrorBudgetBurnFast"
+  ],
+  "iceberg": {
+    "expected": 66000,
+    "found": 66000,
+    "missing": 0,
+    "duplicates": 0
+  },
+  "note": "",
+  "passed": true
+}

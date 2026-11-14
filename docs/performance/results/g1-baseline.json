@@ -1,0 +1,65 @@
+{
+  "label": "g1-baseline",
+  "gc": "g1",
+  "window_seconds": 55.0,
+  "load": {
+    "target_events_per_second": 30000,
+    "measured_seconds": 55.0,
+    "requests": 33000,
+    "achieved_events_per_second": 30000,
+    "outcomes": {
+      "http_200": 33000
+    },
+    "latency_ms": {
+      "p50": 6.590463,
+      "p90": 9.035775,
+      "p99": 23.117823,
+      "p99.9": 36.470783,
+      "max": 54.984703
+    }
+  },
+  "gc_stats": {
+    "collections": 203,
+    "collections_per_second": 3.69,
+    "total_pause_ms": 279.2,
+    "pause_time_percent": 0.508,
+    "pause_ms": {
+      "p50": 1.29,
+      "p99": 2.28,
+      "max": 2.66
+    }
+  },
+  "heap_mib": {
+    "peak_used": 102.5,
+    "live_after_gc_median": 19.5
+  },
+  "cpu": {
+    "jvm_mean_percent_of_machine": 3.6,
+    "jvm_max_percent_of_machine": 7.9
+  },
+  "allocation": {
+    "sampled_mib_per_second": 303.4,
+    "top_sites_percent": {
+      "org/apache/kafka/common/compress/Lz4BlockOutputStream.<init>": 50.2,
+      "org/apache/avro/io/BufferedBinaryEncoder.configure": 16.9,
+      "java/nio/ByteBuffer.wrap": 3.4,
+      "java/io/InputStream.readNBytes": 2.0,
+      "java/util/Arrays.copyOfRangeByte": 1.6,
+      "java/io/ByteArrayOutputStream.<init>": 1.6,
+      "com/fasterxml/jackson/core/util/BufferRecycler.balloc": 1.3,
+      "java/util/regex/Matcher.<init>": 1.3
+    }
+  },
+  "hot_methods_percent": {
+    "org/apache/avro/io/BinaryEncoder.writeString": 5.8,
+    "org/apache/avro/generic/GenericDatumWriter.write": 5.0,
+    "io/lakehouse/ingest/EventIngestor.lambda$ingest$0": 4.1,
+    "java/lang/String.hashCode": 3.9,
+    "java/util/concurrent/CompletableFuture.postComplete": 3.7,
+    "org/apache/avro/io/EncoderFactory.binaryEncoder": 3.5,
+    "java/util/HashMap.getNode": 3.0,
+    "java/nio/ByteBuffer.position": 2.8,
+    "java/util/LinkedHashMap.forEach": 2.6,
+    "net/jpountz/xxhash/XXHash32JNI.hash": 2.4
+  }
+}

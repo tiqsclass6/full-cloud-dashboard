@@ -1,0 +1,230 @@
+# promtool unit tests (local/scripts/rules-test.sh): which alerts must fire, with which labels, and where none may.
+rule_files:
+  - ../rules/slo-ingest.yaml
+  - ../rules/pipeline.yaml
+  - ../rules/kafka.yaml
+  - ../rules/lakehouse.yaml
+  - ../rules/ai-ops.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - name: 10% failures burn the budget fast
+    interval: 1m
+    input_series:
+      - series: 'ingest_requests_total{outcome="accepted"}'
+        values: '0+90x120'
+      - series: 'ingest_requests_total{outcome="failed"}'
+        values: '0+10x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: IngestErrorBudgetBurnFast
+        exp_alerts:
+          - exp_labels: {severity: critical, slo: ingest-availability}
+            exp_annotations:
+              summary: Ingestion is failing requests fast enough to exhaust the error budget
+              description: "10% of ingest requests are failing (budget 0.5%)."
+              runbook_url: docs/runbooks/ingestion.md#ingesterrorbudgetburnfast
+
+  - name: 0.1% failures stay within budget
+    interval: 1m
+    input_series:
+      - series: 'ingest_requests_total{outcome="accepted"}'
+        values: '0+999x120'
+      - series: 'ingest_requests_total{outcome="failed"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 110m
+        alertname: IngestErrorBudgetBurnFast
+        exp_alerts: []
+      - eval_time: 110m
+        alertname: IngestErrorBudgetBurnSlow
+        exp_alerts: []
+
+  - name: no failures records an error ratio of 0, not an empty series
+    interval: 1m
+    input_series:
+      - series: 'ingest_requests_total{outcome="accepted"}'
+        values: '0+100x30'
+    promql_expr_test:
+      - expr: slo:ingest_requests:error_ratio_rate5m
+        eval_time: 20m
+        exp_samples:
+          - labels: 'slo:ingest_requests:error_ratio_rate5m'
+            value: 0
+
+  - name: client mistakes do not spend the error budget
+    interval: 1m
+    input_series:
+      - series: 'ingest_requests_total{outcome="accepted"}'
+        values: '0+50x120'
+      - series: 'ingest_requests_total{outcome="invalid"}'
+        values: '0+50x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: IngestErrorBudgetBurnFast
+        exp_alerts: []
+
+  - name: no commit for 15 minutes makes the table stale
+    interval: 1m
+    input_series:
+      - series: 'iceberg_table_last_commit_timestamp_seconds{table="lakehouse.events"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: IcebergTableStale
+        exp_alerts:
+          - exp_labels: {severity: critical, slo: freshness, table: lakehouse.events}
+            exp_annotations:
+              summary: The events table has not received a commit for over 5 minutes
+              description: "Last commit to lakehouse.events was 15m 0s ago."
+              runbook_url: docs/runbooks/pipeline.md#icebergtablestale
+
+  - name: a table committing every minute is fresh
+    interval: 1m
+    input_series:
+      - series: 'iceberg_table_last_commit_timestamp_seconds{table="lakehouse.events"}'
+        values: '0+60x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: IcebergTableStale
+        exp_alerts: []
+
+  - name: a missing Flink job is detected
+    interval: 1m
+    input_series:
+      - series: 'up{job="unrelated"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: FlinkJobNotRunning
+        exp_alerts:
+          - exp_labels: {severity: critical, job_name: events_to_iceberg}
+            exp_annotations:
+              summary: The Flink job events-to-iceberg is not running
+              description: No running job reports uptime; events are not reaching Iceberg.
+              runbook_url: docs/runbooks/pipeline.md#flinkjobnotrunning
+
+  - name: checkpoints that stop completing are detected
+    interval: 1m
+    input_series:
+      - series: 'flink_jobmanager_job_numberOfCompletedCheckpoints{job_name="events_to_iceberg"}'
+        values: '100x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: FlinkCheckpointsStalled
+        exp_alerts:
+          - exp_labels: {severity: critical, job_name: events_to_iceberg}
+            exp_annotations:
+              summary: Flink has completed no checkpoint for 10 minutes
+              description: The Iceberg sink commits only on completed checkpoints, so nothing new is visible.
+              runbook_url: docs/runbooks/pipeline.md#flinkcheckpointsstalled
+
+  - name: steady checkpoints are healthy
+    interval: 1m
+    input_series:
+      - series: 'flink_jobmanager_job_numberOfCompletedCheckpoints{job_name="events_to_iceberg"}'
+        values: '100+6x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: FlinkCheckpointsStalled
+        exp_alerts: []
+
+  - name: lag counts only partitions the group has consumed (-1 means never consumed)
+    interval: 1m
+    input_series:
+      - series: 'kafka_consumergroup_lag{consumergroup="flink-events-to-iceberg", partition="0"}'
+        values: '60000x20'
+      - series: 'kafka_consumergroup_lag{consumergroup="flink-events-to-iceberg", partition="2"}'
+        values: '-1x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: The Flink job is falling behind Kafka
+              description: "60k events are waiting in events.raw."
+              runbook_url: docs/runbooks/pipeline.md#kafkaconsumerlaghigh
+
+  - name: losing one broker of three is critical
+    interval: 1m
+    input_series:
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-dual-role-0"}'
+        values: '1x10'
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-dual-role-1"}'
+        values: '1x10'
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-dual-role-2"}'
+        values: '1 1 0 0 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: KafkaBrokerDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: KafkaBrokerDown
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: A Kafka broker is down
+              description: "Only 2 of 3 brokers are reachable; the cluster tolerates one loss."
+              runbook_url: docs/runbooks/kafka.md#kafkabrokerdown
+
+  - name: a table that was never compacted cannot be overdue
+    interval: 5m
+    input_series:
+      - series: 'iceberg_table_last_compaction_timestamp_seconds{table="lakehouse.events"}'
+        # NaN = never compacted. The series notation cannot repeat NaN, so the samples are spelled out.
+        values: 'NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN'
+      - series: 'iceberg_table_small_data_files{table="lakehouse.events"}'
+        values: '500x100'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: IcebergCompactionOverdue
+        exp_alerts: []
+
+  - name: compaction older than 6 hours with small files is overdue
+    interval: 5m
+    input_series:
+      - series: 'iceberg_table_last_compaction_timestamp_seconds{table="lakehouse.events"}'
+        values: '0x100'
+      - series: 'iceberg_table_small_data_files{table="lakehouse.events"}'
+        values: '500x100'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: IcebergCompactionOverdue
+        exp_alerts:
+          - exp_labels: {severity: warning, table: lakehouse.events}
+            exp_annotations:
+              summary: "lakehouse.events has not been compacted for over 6 hours"
+              description: The hourly compaction job is not running or not succeeding.
+              runbook_url: docs/runbooks/lakehouse.md#icebergcompactionoverdue
+
+  - name: failed investigations alert people, never the agent
+    interval: 5m
+    input_series:
+      - series: 'ops_agent_investigations_total{outcome="diagnosed"}'
+        values: '0+1x24'
+      - series: 'ops_agent_investigations_total{outcome="error"}'
+        values: '0x6 1 2 2x16'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: OpsAgentInvestigationsFailing
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: OpsAgentInvestigationsFailing
+        exp_alerts:
+          - exp_labels: {severity: warning, ops_agent: skip}
+            exp_annotations:
+              summary: The ops agent failed 2 investigations in the last hour
+              description: Alerts are reaching nobody but the dashboards; check the agent's logs for the outcome.
+              runbook_url: docs/runbooks/ai-ops.md#opsagentinvestigationsfailing
+
+  - name: successful investigations alone never fire
+    interval: 5m
+    input_series:
+      - series: 'ops_agent_investigations_total{outcome="diagnosed"}'
+        values: '0+3x24'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: OpsAgentInvestigationsFailing
+        exp_alerts: []

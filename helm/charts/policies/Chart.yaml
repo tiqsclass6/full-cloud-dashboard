@@ -1,0 +1,10 @@
+apiVersion: v2
+name: policies
+description: Kyverno policies (CEL policy types) for the platform (secret distribution, pod security, image and resource rules).
+type: application
+version: 0.1.0
+appVersion: "1.19.2"
+dependencies:
+  - name: lakehouse-lib
+    version: 0.1.0
+    repository: file://../lakehouse-lib

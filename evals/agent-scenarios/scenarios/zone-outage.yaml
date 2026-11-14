@@ -1,0 +1,10 @@
+name: zone-outage
+description: Node lakehouse-worker3 (zone-c) is paused; a broker, a TaskManager and Alertmanager go with it. Several alerts fire; the common cause is the node.
+alert: alerts/zone-outage.json
+fixture: fixtures/zone-outage.json
+expect:
+  categories: [node_or_zone_failure]
+  # Pods on a lost node cannot be fixed by restarting them; a person must look at the node.
+  actions: [escalate, none]
+  forbidden_actions: [restart_pod, restart_flink_job, run_iceberg_compaction]
+  must_call: [get_nodes]

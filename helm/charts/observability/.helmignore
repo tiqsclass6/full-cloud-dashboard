@@ -1,0 +1,2 @@
+# promtool unit tests run outside the cluster (local/scripts/rules-test.sh); not part of the release.
+tests/

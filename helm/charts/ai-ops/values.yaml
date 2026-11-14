@@ -1,0 +1,102 @@
+# Defaults match the local kind deployment; environment files in helm/values override them.
+namespace: ai-ops
+
+image:
+  repository: lakehouse/ai-ops
+  tag: ""          # empty: use global.imageTag
+mcpImage:
+  repository: lakehouse/mcp-platform-tools
+  tag: ""
+
+# Claude in Amazon Bedrock. The fallback model answers only if the primary model declines a request.
+model:
+  id: anthropic.claude-sonnet-4-6
+  fallbackId: anthropic.claude-opus-5-5
+  region: us-east-1
+  effort: medium
+
+# Created outside the chart: locally by deploy-ai-ops.sh and deploy-langfuse.sh, on AWS from Secrets Manager.
+secrets:
+  internal: ai-ops-internal
+  bedrock: bedrock-credentials
+  slack: ops-slack
+  langfuse: langfuse-api   # LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL (optional: no tracing without it)
+
+mcp:
+  serviceAccount: mcp-platform-tools
+  # The namespaces the tools may read (RoleBindings are created only here). Nodes are read cluster-wide.
+  readNamespaces: [apps, data, kafka, ai-ops, observability, monitoring, argocd, flink-operator, spark-operator]
+  prometheusUrl: http://kps-prometheus.monitoring.svc:9090
+  alertmanagerUrl: http://kps-alertmanager.monitoring.svc:9093
+  lokiUrl: http://loki.observability.svc:3100
+  # AWS: TLS listener behind an internal NLB for AgentCore Gateway; the certificate comes from aws-agentcore.sh.
+  vpcEndpoint:
+    enabled: false
+    hostname: mcp.ai-ops.lakehouse.internal    # the name in the certificate and the Gateway target URL
+    tlsSecret: mcp-tls
+    allowedCidr: 10.0.0.0/16                   # the VPC: the VPC Lattice resource gateway connects from here
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+agent:
+  serviceAccount:
+    name: ops-agent
+    annotations: {}        # AWS: the IRSA role that may invoke the Bedrock models
+  maxTurns: 16
+  maxToolCalls: 24
+  maxInvestigationsPerHour: 6
+  dedupeMinutes: 30
+  severities: [critical, warning]
+  # AWS: investigations run on Amazon Bedrock AgentCore Runtime; ops-agent forwards them (generated value).
+  agentcore:
+    runtimeArn: ""
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {memory: 384Mi}
+
+control:
+  serviceAccount: ops-control
+  requiredApprovals: 1
+  approvalTtlMinutes: 30
+  dryRun: false
+  # Namespaces where an approved restart_pod may delete a pod (must match ops_agent/catalog.py).
+  restartNamespaces: [apps, kafka, data]
+  flink: {namespace: apps, deployment: events-to-iceberg}
+  sparkNamespace: apps
+  grafanaUrl: http://localhost:3000
+  resources:
+    requests: {cpu: 50m, memory: 160Mi}
+    limits: {memory: 320Mi}
+
+# The audit store. Locally the in-cluster Postgres (database "platform", schema "ops").
+database:
+  host: postgres.data.svc
+  port: 5432
+  name: platform
+  sslmode: disable
+  credentialsSecret: postgres-credentials
+  usernameKey: POSTGRES_USER
+  passwordKey: POSTGRES_PASSWORD
+
+serviceMonitor:
+  interval: 30s
+
+# Hermes Agent (Nous Research): interactive on-call assistant (templates/hermes.yaml).
+hermes:
+  enabled: true
+  serviceAccount:
+    name: hermes
+    annotations: {}        # AWS: the IRSA role that may call the model through the inference profile
+  image:
+    repository: lakehouse/hermes
+    tag: ""
+  # Bedrock's Converse API needs an inference profile for this model (us. = US regions).
+  model: us.anthropic.claude-sonnet-4-6
+  # Everything that could act on the world is off; the read-only MCP tools, memory and skills remain.
+  disabledToolsets: [terminal, file, code_execution, browser, computer_use, web, search, x_search, vision, video,
+                     image_gen, video_gen, tts, cronjob, delegation, homeassistant, kanban, discord, discord_admin,
+                     yuanbao, feishu_doc, feishu_drive, spotify, debugging, coding, project, context_engine]
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 768Mi}

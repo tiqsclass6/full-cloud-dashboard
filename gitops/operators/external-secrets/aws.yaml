@@ -1,0 +1,18 @@
+# External Secrets Operator (chart 2.14.0): reads only the platform's Secrets Manager entries, with its own IRSA role.
+installCRDs: true
+serviceAccount:
+  name: external-secrets
+resources:
+  requests: {cpu: 20m, memory: 64Mi}
+  limits: {memory: 256Mi}
+webhook:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+certController:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+# Sync status metrics (alert ExternalSecretNotReady in helm/charts/observability).
+serviceMonitor:
+  enabled: true

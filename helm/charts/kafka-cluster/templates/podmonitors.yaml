@@ -1,0 +1,59 @@
+{{- if .Values.podMonitors.enabled }}
+{{- $labels := include "lakehouse.labels" (dict "root" $ "name" "kafka-monitoring") }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: kafka-brokers
+  namespace: {{ .Values.monitoringNamespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames: [{{ .Values.namespace }}]
+  selector:
+    matchLabels:
+      strimzi.io/kind: Kafka
+      strimzi.io/name: {{ .Values.clusterName }}-kafka
+  podMetricsEndpoints:
+    - port: tcp-prometheus
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: kubernetes_pod_name
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: kafka-exporter
+  namespace: {{ .Values.monitoringNamespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames: [{{ .Values.namespace }}]
+  selector:
+    matchLabels:
+      strimzi.io/name: {{ .Values.clusterName }}-kafka-exporter
+  podMetricsEndpoints:
+    - port: tcp-prometheus
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: strimzi-cluster-operator
+  namespace: {{ .Values.monitoringNamespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames: [{{ .Values.namespace }}]
+  selector:
+    matchLabels:
+      strimzi.io/kind: cluster-operator
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+{{- end }}

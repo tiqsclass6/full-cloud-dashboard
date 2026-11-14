@@ -1,0 +1,75 @@
+# Flink commits every checkpoint (10 s), so snapshot age is freshness; its reporter turns - in job names into _.
+groups:
+  - name: pipeline
+    rules:
+      - alert: IcebergTableStale
+        expr: |
+          time() - iceberg_table_last_commit_timestamp_seconds{table="lakehouse.events"} > 300
+        for: 5m
+        labels:
+          severity: critical
+          slo: freshness
+        annotations:
+          summary: The events table has not received a commit for over 5 minutes
+          description: "Last commit to {{ $labels.table }} was {{ $value | humanizeDuration }} ago."
+          runbook_url: docs/runbooks/pipeline.md#icebergtablestale
+      - alert: FlinkJobNotRunning
+        expr: |
+          absent(flink_jobmanager_job_uptime{job_name="events_to_iceberg"})
+          or max(flink_jobmanager_job_uptime{job_name="events_to_iceberg"}) <= 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: The Flink job events-to-iceberg is not running
+          description: No running job reports uptime; events are not reaching Iceberg.
+          runbook_url: docs/runbooks/pipeline.md#flinkjobnotrunning
+      - alert: FlinkCheckpointsStalled
+        expr: |
+          increase(flink_jobmanager_job_numberOfCompletedCheckpoints{job_name="events_to_iceberg"}[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Flink has completed no checkpoint for 10 minutes
+          description: The Iceberg sink commits only on completed checkpoints, so nothing new is visible.
+          runbook_url: docs/runbooks/pipeline.md#flinkcheckpointsstalled
+      - alert: FlinkCheckpointFailures
+        expr: |
+          increase(flink_jobmanager_job_numberOfFailedCheckpoints{job_name="events_to_iceberg"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Flink checkpoints are failing
+          description: "{{ $value | humanize }} checkpoint(s) failed in the last 10 minutes."
+          runbook_url: docs/runbooks/pipeline.md#flinkcheckpointfailures
+      - alert: FlinkJobRestarting
+        expr: |
+          increase(flink_jobmanager_job_numRestarts{job_name="events_to_iceberg"}[15m]) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: The Flink job keeps restarting
+          description: "{{ $value | humanize }} restarts in the last 15 minutes."
+          runbook_url: docs/runbooks/pipeline.md#flinkjobrestarting
+      - alert: FlinkBackpressureHigh
+        expr: |
+          max(avg_over_time(flink_taskmanager_job_task_isBackPressured{job_name="events_to_iceberg"}[10m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Flink operators are back-pressured most of the time
+          description: A downstream operator (usually the Iceberg writer) cannot keep up.
+          runbook_url: docs/runbooks/pipeline.md#flinkbackpressurehigh
+      - alert: KafkaConsumerLagHigh
+        expr: |
+          # Partitions the group has never consumed report -1 (no committed offset); leave them out.
+          sum(kafka_consumergroup_lag{consumergroup="flink-events-to-iceberg"} >= 0) > 50000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: The Flink job is falling behind Kafka
+          description: "{{ $value | humanize }} events are waiting in events.raw."
+          runbook_url: docs/runbooks/pipeline.md#kafkaconsumerlaghigh

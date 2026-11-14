@@ -1,0 +1,79 @@
+# Accepted Trivy risks (local/scripts/security-scan.sh); each expires at expired_at and then fails the gate again.
+
+misconfigurations:
+  - id: AWS-0031
+    paths: ["envs/dev/ecr.tf", "ecr.tf"]
+    statement: >-
+      ECR tags are mutable in dev only (var.ecr_tag_mutability), so a demo rebuild can keep its
+      version. Staging and prod set IMMUTABLE.
+    expired_at: 2027-04-30
+
+  - id: AWS-0040
+    statement: >-
+      The EKS API endpoint is public but restricted to the operator's /32 (api_allowed_cidrs,
+      validated). The environment is ephemeral; production would be private-only behind a VPN.
+    expired_at: 2027-04-30
+
+  - id: AWS-0041
+    statement: >-
+      Reported on the EKS module's default (0.0.0.0/0) when the module is evaluated on its own.
+      This project always passes api_allowed_cidrs, a single validated /32.
+    expired_at: 2027-04-30
+
+  - id: AWS-0104
+    statement: >-
+      EKS node security group egress (module default). Nodes reach ECR, Docker Hub and quay.io
+      through the NAT gateway; pod egress is restricted by Kubernetes NetworkPolicies instead.
+    expired_at: 2027-04-30
+
+# Shaded libraries inside the Iceberg/Hadoop runtime jars: only an upstream release fixes them; re-check on each upgrade.
+vulnerabilities:
+  - id: CVE-2026-89407
+    paths: ["opt/flink/usrlib/job.jar", "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.12.0.jar"]
+    statement: Jackson core, shaded in the Iceberg runtimes. Fixed in 2.22.3; waiting for an Iceberg release.
+    expired_at: 2027-01-31
+  - id: CVE-2026-89425
+    paths: ["opt/flink/usrlib/job.jar", "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.12.0.jar"]
+    statement: Jackson core, shaded in the Iceberg runtimes. Fixed in 2.22.3; waiting for an Iceberg release.
+    expired_at: 2027-01-31
+  - id: CVE-2026-91776
+    paths: ["opt/flink/usrlib/job.jar", "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.12.0.jar"]
+    statement: Jackson databind, shaded in the Iceberg runtimes. Fixed in 2.22.3; waiting for an Iceberg release.
+    expired_at: 2027-01-31
+  - id: CVE-2026-91777
+    paths: ["opt/flink/usrlib/job.jar", "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.12.0.jar"]
+    statement: Jackson databind, shaded in the Iceberg runtimes. Fixed in 2.22.3; waiting for an Iceberg release.
+    expired_at: 2027-01-31
+  - id: CVE-2026-68497
+    paths: ["opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.12.0.jar"]
+    statement: Jackson databind, shaded in Iceberg's Spark runtime. Waiting for an Iceberg release.
+    expired_at: 2027-01-31
+  - id: CVE-2026-102554
+    paths: ["opt/flink/usrlib/job.jar", "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.12.0.jar",
+            "opt/iceberg-exporter/lib/iceberg-bundled-guava-1.12.0.jar"]
+    statement: Guava, shaded in the Iceberg runtimes and iceberg-bundled-guava. Fixed in 33.7.2; waiting for an Iceberg release.
+    expired_at: 2027-01-31
+  - id: CVE-2026-2332
+    paths: ["opt/flink/usrlib/job.jar"]
+    statement: >-
+      Jetty HTTP 9.4, shaded in hadoop-client-runtime (S3A filesystem classes). The job never starts
+      a Jetty server or client. Waiting for a Hadoop release.
+    expired_at: 2027-01-31
+  - id: CVE-2026-56740
+    paths: ["opt/flink/usrlib/job.jar"]
+    statement: jline remote telnet, shaded in hadoop-client-runtime; never used by the job (no shell).
+    expired_at: 2027-01-31
+  - id: CVE-2026-56741
+    paths: ["opt/flink/usrlib/job.jar"]
+    statement: jline remote telnet, shaded in hadoop-client-runtime; never used by the job (no shell).
+    expired_at: 2027-01-31
+  - id: CVE-2026-77422
+    paths: ["opt/flink/usrlib/job.jar"]
+    statement: jline builtins, shaded in hadoop-client-runtime; never used by the job (no shell).
+    expired_at: 2027-01-31
+
+  # Fix not yet 14 days old (ai-lock.sh); re-lock with `make ai-lock` once it is, then drop this entry.
+  - id: CVE-2026-49272
+    paths: ["usr/local/lib/python3.14/site-packages/oauthlib-4.0.0.dist-info/METADATA"]
+    statement: oauthlib 4.0.0 in ai-ops and mcp-platform-tools. 4.0.1 (2026-10-31) is lockable from 2026-11-14.
+    expired_at: 2026-11-17

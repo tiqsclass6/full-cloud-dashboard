@@ -1,0 +1,10 @@
+apiVersion: v2
+name: schema-registry
+description: Apicurio Registry (Avro schemas, Confluent-compatible API) backed by Postgres.
+type: application
+version: 0.1.0
+appVersion: "3.2.1"
+dependencies:
+  - name: lakehouse-lib
+    version: 0.1.0
+    repository: file://../lakehouse-lib

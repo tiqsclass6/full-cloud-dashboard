@@ -1,0 +1,18 @@
+# One broker isolated for 6 minutes: with RF=3 and min.insync.replicas=2 writes continue and alerts fire.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: broker-isolation
+  namespace: kafka
+spec:
+  action: loss
+  mode: one
+  selector:
+    namespaces: [kafka]
+    labelSelectors:
+      strimzi.io/broker-role: "true"
+  loss:
+    loss: "100"
+    correlation: "0"
+  direction: to
+  duration: 6m

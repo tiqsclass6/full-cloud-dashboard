@@ -1,0 +1,60 @@
+# Base values; overlays: local = values/local.yaml, dev|staging|prod = values/aws.yaml then values/<env>.yaml.
+global:
+  environment: local
+  imageRegistry: ""            # e.g. an ECR registry on AWS; empty = images are local (kind)
+  imageTag: dev
+  imagePullPolicy: IfNotPresent
+  aws:
+    region: us-east-1
+  kafka:
+    # Mutual TLS only (helm/charts/kafka-cluster); each client presents its own KafkaUser certificate.
+    bootstrapServers: lakehouse-kafka-bootstrap.kafka.svc:9093
+    tls:
+      enabled: true
+      caSecret: lakehouse-cluster-ca-cert
+  schemaRegistry:
+    url: http://apicurio-registry.data.svc:8080/apis/ccompat/v7
+  iceberg:
+    catalogType: rest          # rest (local Iceberg REST service) | glue (AWS Glue Data Catalog)
+    restUri: http://iceberg-rest.data.svc:8181
+    warehouse: s3://warehouse/
+  # Set only where S3 needs an explicit endpoint and static keys (the local SeaweedFS stand-in).
+  s3:
+    endpoint: ""
+    credentialsSecret: s3-credentials
+
+# Namespaces the platform owns. Never pruned: deleting the Argo CD application must not delete data.
+namespaces: [apps, data, kafka, ai-ops]
+
+# Namespaces Chaos Mesh may inject faults into (chaos/experiments). Everything else is off-limits.
+chaosTargets: [apps, data, kafka]
+
+# Pod Security Standards enforced per namespace (Kubernetes Pod Security admission).
+podSecurity:
+  default: restricted
+  levels: {}           # namespace -> level, for documented exceptions (see helm/values/local.yaml)
+
+policies:
+  enabled: true
+network-policies:
+  enabled: true
+secrets:
+  enabled: false       # AWS only (helm/values/aws.yaml)
+local-data:
+  enabled: false
+schema-registry:
+  enabled: true
+kafka-cluster:
+  enabled: true
+ingestion-service:
+  enabled: true
+flink-jobs:
+  enabled: true
+spark-jobs:
+  enabled: true
+iceberg-exporter:
+  enabled: true
+observability:
+  enabled: true
+ai-ops:
+  enabled: true

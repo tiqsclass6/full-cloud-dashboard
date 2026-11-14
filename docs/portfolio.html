@@ -1,0 +1,478 @@
+<title>Streaming Lakehouse Platform</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* Layout: one reading column, a ledger of measured results up top, then architecture, flows, skills.
+   Numbers are set in mono like log output: the subject's own vernacular. */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --ink: #0c1626;
+  --muted: #4b5769;
+  --line: #d5dce6;
+  --accent: #1d4ed8;
+  --accent-soft: #e5ecfb;
+  --ok: #15803d;
+  --warn: #9a5a06;
+  --warn-bg: #fcf2df;
+  --frame: #080f1d;
+  --display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a1019; --surface: #111a27; --ink: #e6ecf5; --muted: #9ba8bb; --line: #243146;
+    --accent: #85a6ff; --accent-soft: #15223d; --ok: #4ade80; --warn: #f0b45c; --warn-bg: #2a200f;
+    --frame: #080f1d; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a1019; --surface: #111a27; --ink: #e6ecf5; --muted: #9ba8bb; --line: #243146;
+  --accent: #85a6ff; --accent-soft: #15223d; --ok: #4ade80; --warn: #f0b45c; --warn-bg: #2a200f;
+  --frame: #080f1d; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 48px 64px; display: grid; gap: 64px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2.3rem, 6vw, 4rem); font-weight: 800; font-stretch: 78%; line-height: 1.02; }
+h2 { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 700; font-stretch: 85%; }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+a { color: var(--accent); }
+code, .mono { font-family: var(--mono); font-size: 0.88em; }
+.eyebrow { font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+section { display: grid; gap: 20px; }
+.lede { font-size: 1.15rem; color: var(--muted); }
+
+/* Hero */
+.hero { display: grid; gap: 22px; }
+.banner { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
+.ledger { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.ledger div { background: var(--surface); padding: 18px 18px 16px; display: grid; gap: 6px; align-content: start; }
+.ledger .n { font-family: var(--mono); font-weight: 500; font-size: 1.45rem; font-variant-numeric: tabular-nums; color: var(--ink); }
+.ledger .n b { color: var(--ok); font-weight: 500; }
+.ledger .l { font-size: 0.88rem; color: var(--muted); line-height: 1.45; }
+
+.status { display: grid; grid-template-columns: auto 1fr; gap: 14px; background: var(--warn-bg); border: 1px solid var(--warn);
+  border-radius: 10px; padding: 16px 18px; }
+.status .tag { font-family: var(--mono); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--warn);
+  border: 1px solid var(--warn); border-radius: 999px; padding: 2px 10px; height: fit-content; }
+.status p { font-size: 0.95rem; }
+
+/* Figures */
+.frame { background: var(--frame); border: 1px solid var(--line); border-radius: 12px; padding: 12px; overflow-x: auto; }
+.frame img { display: block; width: 100%; height: auto; min-width: 640px; }
+.frame.tall img { min-width: 520px; max-height: 1200px; object-fit: contain; }
+figcaption { font-size: 0.85rem; color: var(--muted); margin-top: 8px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.two > * { min-width: 0; }
+@media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+
+/* Flow picker */
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tabs button { font: 500 0.9rem var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+.tabs button:hover { border-color: var(--accent); }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.tabs button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.flowtext { color: var(--muted); font-size: 0.95rem; min-height: 1.6em; }
+
+/* Tables */
+.table { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.92rem; }
+th, td { text-align: left; vertical-align: top; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-family: var(--mono); font-size: 0.74rem; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+td:first-child { font-weight: 600; white-space: nowrap; }
+td .mono { font-variant-numeric: tabular-nums; }
+
+/* Stack */
+.stack { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+.stack div { display: grid; gap: 4px; }
+.stack h3 { font-size: 0.95rem; }
+.stack p { font-size: 0.9rem; color: var(--muted); }
+
+/* Contents, screenshots, lessons, repository tree */
+.toc { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.9rem; }
+.toc a { text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+.shots figure { margin: 0; display: grid; gap: 6px; align-content: start; }
+.shots a { display: block; background: var(--frame); border: 1px solid var(--line); border-radius: 10px; padding: 6px; }
+.shots img { display: block; width: 100%; height: 180px; object-fit: cover; object-position: top left; border-radius: 6px; }
+.shots figcaption { margin: 0; }
+.shots .num { font-family: var(--mono); color: var(--accent); margin-right: 6px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+.cards div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 8px; align-content: start; }
+.cards ul { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; font-size: 0.92rem; }
+pre.tree { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px;
+  overflow-x: auto; font-family: var(--mono); font-size: 0.82rem; line-height: 1.5; }
+.links { columns: 2 260px; column-gap: 28px; margin: 0; padding-left: 1.1em; font-size: 0.92rem; }
+.links li { break-inside: avoid; margin-bottom: 4px; }
+.gaps { display: grid; gap: 10px; padding-left: 1.1em; margin: 0; }
+.gaps li { max-width: 72ch; }
+footer { border-top: 1px solid var(--line); padding-top: 20px; font-size: 0.85rem; color: var(--muted); display: grid; gap: 8px; }
+@media (prefers-reduced-motion: no-preference) { .tabs button { transition: background .15s, border-color .15s; } }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <img class="banner" src="diagrams/banner.jpg" alt="Streaming lakehouse platform: Kubernetes, Kafka, Flink, Spark, Iceberg, Argo CD, Terraform and AWS" width="1600" height="533" loading="eager">
+    <span class="eyebrow">Data platform portfolio &middot; Kubernetes, Kafka, Flink, Iceberg, AWS</span>
+    <h1>Streaming Lakehouse Platform</h1>
+    <p class="lede">What this lab does: a Java service writes Avro events to Kafka, Flink lands them in Apache Iceberg exactly once, Spark keeps the tables healthy, and Argo CD delivers everything from Git. It runs on a local kind cluster and on an ephemeral Amazon EKS environment built with Terraform. An ops agent triages alerts through read-only tools and changes nothing until a person approves.</p>
+    <nav class="toc" aria-label="Contents">
+      <a href="#arch">Architecture</a><a href="#flows">Flows</a><a href="#results">Results</a><a href="#skills">Skills map</a>
+      <a href="#requirements">Requirements</a><a href="#structure">Structure</a><a href="#steps">Steps</a><a href="#screenshots">Screenshots</a>
+      <a href="#teardown">Teardown</a><a href="#lessons">Lessons</a><a href="#troubleshooting">Troubleshooting</a><a href="#references">References</a>
+    </nav>
+    <div class="ledger" role="list" aria-label="Measured results">
+      <div role="listitem"><span class="n">24,000 <b>=</b> 24,000</span><span class="l">rows = distinct ids after a TaskManager kill and a savepoint restore</span></div>
+      <div role="listitem"><span class="n">0 / 259,650</span><span class="l">events lost or duplicated across four chaos experiments</span></div>
+      <div role="listitem"><span class="n">70 &rarr; 1</span><span class="l">Iceberg files after compaction; full scan 1.68 s &rarr; 0.48 s</span></div>
+      <div role="listitem"><span class="n">5,000 <b>=</b> 5,000</span><span class="l">events counted once by Athena on EKS</span></div>
+    </div>
+    <div class="status">
+      <span class="tag">2026-11-14</span>
+      <p>All ten phases are built. The lab was run with the screenshots below: Parts 1-8 on kind and Part 9 on AWS. The AWS environment was applied, verified and torn down in five recorded runs (2026-10-29 to 11-13); the latest teardown passed its leftover check on 2026-11-14. One gap: the AWS account has no Amazon Bedrock access to Claude yet, so the agent's guardrails, tools, approvals and AWS path are verified, but no live diagnosis has been produced and the eval suite has no results.</p>
+    </div>
+  </header>
+
+  <section aria-labelledby="arch">
+    <span class="eyebrow">Architecture</span>
+    <h2 id="arch">One platform, two environments</h2>
+    <p>The same Helm charts run on kind and EKS; only the values differ. Locally, SeaweedFS stands in for S3 and a REST catalog on Postgres for Glue.</p>
+    <div class="two">
+      <figure style="margin:0">
+        <div class="frame tall"><img src="diagrams/architecture.png" alt="Platform architecture: ingestion, Kafka, Flink, Spark, Iceberg, observability, agentic ops and delivery on Kubernetes" loading="eager"></div>
+        <figcaption>The platform on Kubernetes. Logos: AWS Architecture Icons, the Apache Flink and Iceberg sites, Devicon.</figcaption>
+      </figure>
+      <figure style="margin:0">
+        <div class="frame"><img src="diagrams/aws-deployment.png" alt="AWS dev environment: bootstrap stack, VPC with EKS and RDS, regional services, security services, Bedrock AgentCore" loading="eager"></div>
+        <figcaption>The AWS dev environment: applied for a demo, verified end to end, destroyed. About $0.40 an hour while up.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section aria-labelledby="flows">
+    <span class="eyebrow">How it works</span>
+    <h2 id="flows">Seven flows, step by step</h2>
+    <div class="tabs" role="tablist" aria-label="Workflows">
+      <button id="tab-ingestion" role="tab" aria-selected="true" data-file="workflow-ingestion-exactly-once.png" data-text="Client ids, acks=all, de-duplication in Flink state, and an Iceberg commit tied to the checkpoint.">Exactly once</button>
+      <button id="tab-spark" role="tab" aria-selected="false" data-file="workflow-spark-maintenance.png" data-text="Scheduled compaction, manifest rewrite, snapshot expiry and aggregates while the stream keeps writing.">Spark maintenance</button>
+      <button id="tab-gitops" role="tab" aria-selected="false" data-file="workflow-gitops-delivery.png" data-text="Git, in-cluster Gitea, Argo CD app of apps, per-layer projects, admission and drift correction.">GitOps</button>
+      <button id="tab-aws" role="tab" aria-selected="false" data-file="workflow-aws-lifecycle.png" data-text="Plan, a person confirms, apply, GitOps bootstrap, smoke and security tests, AgentCore, teardown.">AWS lifecycle</button>
+      <button id="tab-supply" role="tab" aria-selected="false" data-file="workflow-supply-chain.png" data-text="Locked dependencies, Trivy gate, SBOM, Cosign signature with a KMS key, verification at admission.">Supply chain</button>
+      <button id="tab-mtls" role="tab" aria-selected="false" data-file="workflow-kafka-mtls.png" data-text="Strimzi CAs, one KafkaUser per client, certificates distributed by Kyverno, one mutual-TLS listener.">Kafka mTLS</button>
+      <button id="tab-agent" role="tab" aria-selected="false" data-file="workflow-agentic-ops.png" data-text="Alert, investigation through MCP tools, typed diagnosis, Slack approval, single-use token, audited execution.">Agentic ops</button>
+    </div>
+    <p class="flowtext" id="flowtext">Client ids, acks=all, de-duplication in Flink state, and an Iceberg commit tied to the checkpoint.</p>
+    <div class="frame" role="tabpanel" aria-labelledby="tab-ingestion" id="flowpanel">
+      <img id="flowimg" src="diagrams/workflow-ingestion-exactly-once.png" alt="Event to Iceberg, exactly once: seven numbered steps with measured results">
+    </div>
+  </section>
+
+  <section aria-labelledby="results">
+    <span class="eyebrow">Results</span>
+    <h2 id="results">What was measured</h2>
+    <p>Each test ran once unless stated. The results pages in the repository say what each one does and does not prove.</p>
+    <div class="table">
+      <table>
+        <thead><tr><th>Area</th><th>Result</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>Exactly once</td><td>24,000 events with 3,400 duplicate sends and re-sends, a TaskManager kill and a savepoint restore: <span class="mono">24,000</span> rows, <span class="mono">24,000</span> distinct</td><td><code>docs/flink-iceberg.md</code></td></tr>
+          <tr><td>Chaos</td><td>Broker isolation, TaskManager kill, 400 ms Kafka latency, a paused node: <span class="mono">259,650</span> events, none lost or duplicated</td><td><code>docs/chaos/</code></td></tr>
+          <tr><td>Iceberg maintenance</td><td>70 small files to 1, 56 snapshots to 1; compaction under 5,000 events/s with Kafka = table at <span class="mono">3,501,500</span></td><td><code>docs/spark-iceberg.md</code></td></tr>
+          <tr><td>JVM performance</td><td>30,000 events/s, 0 errors, p99 23 ms; an Avro encoder change cut allocation 19%; G1 and generational ZGC compared with JFR</td><td><code>docs/performance/</code></td></tr>
+          <tr><td>AWS end to end</td><td>5,000 events through ingestion, Kafka, Flink and Iceberg on S3 and Glue; Athena counted 5,000 rows, 5,000 distinct</td><td><code>docs/aws.md</code></td></tr>
+          <tr><td>Security on EKS</td><td>Kafka mTLS and ACLs 10/10, network policies 9/9, admission 15/15; signed image admitted, unsigned refused</td><td><code>SECURITY.md</code></td></tr>
+          <tr><td>Observability</td><td>27 alerts with runbooks and promtool tests; 57 of 57 dashboard queries return data; an alert fired, its runbook fixed it, it resolved</td><td><code>docs/observability.md</code></td></tr>
+          <tr><td>Agentic ops</td><td>37 of 37 guardrail checks; 13 read-only MCP tools reached through AgentCore Gateway inside the VPC, 1.38 s per call</td><td><code>docs/ai-ops.md</code></td></tr>
+          <tr><td>Teardown</td><td><code>aws-down</code> releases every volume and load balancer before <code>terraform destroy</code>, then checks for leftovers</td><td><code>docs/aws.md</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="skills">
+    <span class="eyebrow">Skills map</span>
+    <h2 id="skills">From the role's requirements to the repository</h2>
+    <div class="table">
+      <table>
+        <thead><tr><th>Requirement</th><th>Built</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td>Distributed systems</td><td>Ten ADRs with alternatives and consequences</td><td>Failure modes exercised by chaos experiments</td></tr>
+          <tr><td>Java and the JVM</td><td>Ingestion service on virtual threads, bounded in-flight work, JDK HTTP server; Flink job and exporter in Java</td><td>JFR profiles, G1 vs ZGC, an allocation hot spot removed</td></tr>
+          <tr><td>Kafka</td><td>Strimzi, KRaft, 3 zones, RF=3, min ISR 2, rack awareness, mTLS and ACLs</td><td>Broker isolation and zone outage without data loss</td></tr>
+          <tr><td>Flink</td><td>Keyed de-duplication state, checkpoints and savepoints on S3, Iceberg two-phase commit</td><td>Pod kill and savepoint restore tests</td></tr>
+          <tr><td>Spark</td><td>PySpark maintenance and hourly aggregates on the Spark operator</td><td>Compaction under load; shuffle partitions and AQE experiment</td></tr>
+          <tr><td>Iceberg and formats</td><td>REST catalog locally, Glue on AWS; Avro on the wire, Parquet at rest; SSE-KMS</td><td>Schema evolution demo; table-health exporter and alerts</td></tr>
+          <tr><td>Kubernetes and Helm</td><td>Umbrella and library charts, values layered per environment, Pod Security restricted</td><td><code>make helm-check</code> renders every environment</td></tr>
+          <tr><td>GitOps and release</td><td>Argo CD app of apps, ApplicationSets, per-layer projects, in-cluster Gitea</td><td>Same bootstrap on kind and EKS; signed images</td></tr>
+          <tr><td>Postgres</td><td>Iceberg catalog, registry, agent audit store; RDS Postgres 17 on AWS, TLS only</td><td>Every approval and execution in <code>ops.*</code></td></tr>
+          <tr><td>Security</td><td>IRSA, KMS throughout, Kyverno, default-deny network policies, Cosign, CloudTrail, Config</td><td>Security suites on kind and EKS; NIST SP 800-53 mapping</td></tr>
+          <tr><td>Troubleshooting</td><td>SLOs with multi-window burn-rate alerts; a runbook for every alert</td><td>Chaos write-ups and "what went wrong" notes on every results page</td></tr>
+          <tr><td>AI in operations</td><td>Pydantic AI agent on Claude in Amazon Bedrock, MCP tools, Slack approvals, Langfuse, Hermes Agent, AgentCore</td><td>Guardrail tests; recorded incident scenarios for evals</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="stack">
+    <span class="eyebrow">Stack</span>
+    <h2 id="stack">Pinned versions</h2>
+    <div class="stack">
+      <div><h3>Streaming</h3><p>Kafka 4.3.1 on Strimzi 1.3.0 &middot; Apicurio Registry 3.2.1</p></div>
+      <div><h3>Processing</h3><p>Flink 2.1.3 (operator 1.16.1) &middot; Spark 4.1.4 (operator 2.5.2) &middot; Iceberg 1.12.0</p></div>
+      <div><h3>Delivery</h3><p>Argo CD 3.5.6 &middot; Gitea 28.2.0 &middot; Helm &middot; Terraform, AWS provider 6.71</p></div>
+      <div><h3>Security</h3><p>Kyverno 1.19.2 &middot; External Secrets 2.14.0 &middot; Trivy &middot; Cosign with KMS</p></div>
+      <div><h3>Observability</h3><p>kube-prometheus-stack 92.14.1 &middot; Loki 3.6 &middot; Tempo 2.9 &middot; Alloy 1.21 &middot; Chaos Mesh 2.8.5</p></div>
+      <div><h3>Agentic ops</h3><p>Pydantic AI 2.57 &middot; MCP SDK 2.3 &middot; Langfuse 4.56 &middot; Hermes Agent 0.19 &middot; AgentCore</p></div>
+      <div><h3>Languages</h3><p>Java 21 (Flink job on 17) &middot; Python 3.14 &middot; HCL &middot; Bash</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="requirements">
+    <span class="eyebrow">Requirements</span>
+    <h2 id="requirements">What the lab needs</h2>
+    <div class="table">
+      <table>
+        <thead><tr><th>Tool</th><th>Used</th><th>Needed for</th></tr></thead>
+        <tbody>
+          <tr><td>Terraform 1.10+</td><td>Yes</td><td>The AWS environment (AWS provider <code>~&gt; 6.0</code>)</td></tr>
+          <tr><td>AWS Console</td><td>Yes</td><td>Viewing EKS, Athena and budgets; requesting Bedrock model access</td></tr>
+          <tr><td>AWS CLI v2</td><td>Yes</td><td>Credentials, ECR login, leftover checks in <code>make aws-down</code></td></tr>
+          <tr><td>Python 3.13+ and uv</td><td>Yes</td><td>Test tools, diagrams, dependency locks</td></tr>
+          <tr><td>Git</td><td>Yes</td><td>Source control; Argo CD pulls from an in-cluster Gitea</td></tr>
+          <tr><td>Docker Desktop 29.x</td><td>Yes</td><td>Everything local; at least 10 GB of memory</td></tr>
+          <tr><td>kind, kubectl, helm</td><td>Yes</td><td>The local cluster and the charts</td></tr>
+          <tr><td>JDK 21</td><td>Yes</td><td>Building the Java services</td></tr>
+          <tr><td>make, curl, jq, openssl, trivy, Graphviz</td><td>Yes</td><td>The scripts, the security scan, the diagrams</td></tr>
+          <tr><td>Jenkins</td><td>No</td><td>No CI server: the test gate is <code>make</code> targets, and Argo CD does the delivery</td></tr>
+          <tr><td>GCP Console, Google SDK</td><td>No</td><td>The project runs on kind and AWS only</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="structure">
+    <span class="eyebrow">Project structure</span>
+    <h2 id="structure">How the repository is laid out</h2>
+    <pre class="tree">full-cloud-dashboard-project/
+├── apps/                         # Application code, one folder per service
+│   ├── ingestion-service/        # Java 21 HTTP ingestion service and load generator
+│   ├── flink-iceberg-job/        # Flink job (Java 17): Kafka to Iceberg, exactly once
+│   ├── spark-jobs/               # PySpark: Iceberg maintenance and hourly aggregates
+│   ├── iceberg-exporter/         # Prometheus exporter for Iceberg table health
+│   ├── mcp-platform-tools/       # MCP server: 13 read-only platform tools
+│   ├── ai-ops/                   # Ops agent, approval service, eval runner
+│   └── hermes/                   # Hermes Agent image (on-call assistant)
+├── chaos/experiments/            # Chaos Mesh faults: broker isolation, latency, pod kill
+├── docs/                         # Documentation (index.md)
+│   ├── architecture-decisions/   # ADRs 0001-0010
+│   ├── chaos/                    # Chaos experiment results
+│   ├── diagrams/                 # Architecture diagrams and workflow infographics
+│   ├── lab/                      # Lab runbook (RUNBOOK.md) and screenshots (images/)
+│   ├── performance/              # JVM performance results
+│   ├── runbooks/                 # Alert runbooks, also read by the ops agent
+│   ├── security/                 # NIST SP 800-53 control mapping
+│   └── *.md                      # Results: flink-iceberg, spark-iceberg, aws, observability, ai-ops
+├── evals/agent-scenarios/        # Recorded incidents for the agent eval suite
+├── gitops/                       # Argo CD
+│   ├── bootstrap/                # Argo CD, Gitea, projects, root app
+│   ├── argocd/                   # Applications and ApplicationSets
+│   └── operators/                # Operator values per environment (local, aws)
+├── helm/                         # Helm
+│   ├── charts/                   # Umbrella chart (platform), library chart, 13 sub-charts
+│   └── values/                   # Overlays: local, aws, dev, staging, prod
+├── local/                        # Local platform
+│   ├── kind-config.yaml          # 4-node kind cluster, 3 worker zones
+│   ├── container-images/         # Iceberg REST catalog image with the Postgres driver
+│   ├── scripts/                  # Scripts behind every make target
+│   └── tools/                    # Dashboard, diagram, table and test tools
+├── terraform/                    # AWS infrastructure
+│   ├── bootstrap/                # Account level: state bucket, budgets, audit trail
+│   ├── envs/dev/                 # Ephemeral EKS environment
+│   └── modules/cost-guardrails/  # Budget alerts module
+├── Makefile                      # Every command (make help)
+├── CONTRIBUTING.md               # Tests per component, change checklist
+├── SECURITY.md                   # Security controls and vulnerability reporting
+├── CODE_OF_CONDUCT.md
+├── LICENSE.txt                   # MIT
+└── README.md                     # Project overview</pre>
+  </section>
+
+  <section aria-labelledby="steps">
+    <span class="eyebrow">Steps</span>
+    <h2 id="steps">The lab, part by part</h2>
+    <p>The full lab, with sign-ins and expected output, is <code>docs/lab/RUNBOOK.md</code>. Parts 1-8 are free and run on kind; Part 9 costs about $0.40 an hour while up.</p>
+    <div class="table">
+      <table>
+        <thead><tr><th>Part</th><th>What it shows</th><th>Commands</th></tr></thead>
+        <tbody>
+          <tr><td>1. Platform up</td><td>A 4-node kind cluster; Argo CD installs everything from in-cluster Git (20-40 min first time)</td><td><code>make local-up</code>, <code>make gitops-status</code>, <code>make local-smoke</code>, <code>make local-ports</code></td></tr>
+          <tr><td>2. Tour of the UIs</td><td>Grafana dashboards, every Prometheus job up, Alertmanager, the Avro schema</td><td>Browser, through <code>make local-ports</code></td></tr>
+          <tr><td>3. Exactly once</td><td>Load through the real path; 3 waves, a pod kill and a savepoint restore; a column added end to end</td><td><code>make local-loadtest</code>, <code>make local-test-exactly-once</code>, <code>make local-demo-schema-evolution</code></td></tr>
+          <tr><td>4. Spark</td><td>Compaction, manifest rewrite, snapshot expiry, hourly aggregates</td><td><code>make local-deploy-spark</code>, <code>make local-spark-maintenance</code>, <code>make local-spark-aggregate</code></td></tr>
+          <tr><td>5. GitOps</td><td>A change delivered from Git; a manual change reverted by Argo CD</td><td><code>make helm-check</code>, <code>make gitops-push</code></td></tr>
+          <tr><td>6. Security</td><td>Trivy gate and SBOMs; Kafka mTLS and ACLs, network policies, admission</td><td><code>make security-scan</code>, <code>make security-test</code></td></tr>
+          <tr><td>7. Alerts and chaos</td><td>Alert rule tests; one broker cut off for 6 minutes under load</td><td><code>make rules-test</code>, <code>make chaos EXP=broker-isolation</code></td></tr>
+          <tr><td>8. Ops agent</td><td>Unit tests and 37 guardrail checks, including a real approved action</td><td><code>make ai-test</code>, <code>make ai-deploy</code>, <code>make ai-ops-test</code></td></tr>
+          <tr><td>9. AWS (optional)</td><td>Plan, a person confirms, apply, the same GitOps bootstrap, smoke and security tests</td><td><code>make aws-init aws-plan</code>, <code>make aws-apply</code>, <code>make aws-up</code>, <code>make aws-smoke</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="screenshots">
+    <span class="eyebrow">Show your work</span>
+    <h2 id="screenshots">Screenshots from the lab</h2>
+    <p>Parts 1-8 on kind (2026-11-13) and Part 9 on EKS (2026-11-01). Select a screenshot to open it at full size. Usernames, host names and browser profiles are blurred.</p>
+    <div class="shots">
+      <figure><a href="lab/images/01-argocd-applications-pt1.png"><img src="lab/images/01-argocd-applications-pt1.png" alt="Argo CD applications list, all Synced and Healthy" loading="lazy"></a><figcaption><span class="num">01</span>Argo CD: every application Synced and Healthy</figcaption></figure>
+      <figure><a href="lab/images/02-gitea-repository.png"><img src="lab/images/02-gitea-repository.png" alt="Gitea repository file list" loading="lazy"></a><figcaption><span class="num">02</span>Gitea: the repository Argo CD deploys from</figcaption></figure>
+      <figure><a href="lab/images/03-local-smoke.png"><img src="lab/images/03-local-smoke.png" alt="Terminal output of make local-smoke" loading="lazy"></a><figcaption><span class="num">03</span><code>make local-smoke</code> passing</figcaption></figure>
+      <figure><a href="lab/images/04-grafana-overview.png"><img src="lab/images/04-grafana-overview.png" alt="Grafana Lakehouse Overview dashboard" loading="lazy"></a><figcaption><span class="num">04</span>Grafana: Lakehouse / Overview</figcaption></figure>
+      <figure><a href="lab/images/05-prometheus-targets.png"><img src="lab/images/05-prometheus-targets.png" alt="Prometheus query showing every scrape job up" loading="lazy"></a><figcaption><span class="num">05</span>Prometheus: all 31 scrape jobs up</figcaption></figure>
+      <figure><a href="lab/images/06-apicurio-schema.png"><img src="lab/images/06-apicurio-schema.png" alt="Apicurio registry API showing the Avro schema" loading="lazy"></a><figcaption><span class="num">06</span>Apicurio: the event schema</figcaption></figure>
+      <figure><a href="lab/images/07-grafana-ingestion-slo.png"><img src="lab/images/07-grafana-ingestion-slo.png" alt="Grafana Ingestion SLO dashboard during a load test" loading="lazy"></a><figcaption><span class="num">07</span>Grafana: Ingestion SLO during the load test</figcaption></figure>
+      <figure><a href="lab/images/08-exactly-once-result.png"><img src="lab/images/08-exactly-once-result.png" alt="Terminal output of the exactly-once test" loading="lazy"></a><figcaption><span class="num">08</span>Exactly once: 24,000 rows, 24,000 distinct, 0 duplicates</figcaption></figure>
+      <figure><a href="lab/images/09-grafana-pipeline.png"><img src="lab/images/09-grafana-pipeline.png" alt="Grafana Pipeline dashboard during the exactly-once tests" loading="lazy"></a><figcaption><span class="num">09</span>Grafana: Pipeline during the exactly-once tests</figcaption></figure>
+      <figure><a href="lab/images/10-grafana-tables-compaction.png"><img src="lab/images/10-grafana-tables-compaction.png" alt="Grafana Tables dashboard with small files dropping at compaction" loading="lazy"></a><figcaption><span class="num">10</span>Grafana: small files 150 to 0 at compaction</figcaption></figure>
+      <figure><a href="lab/images/11-spark-maintenance-summary.png"><img src="lab/images/11-spark-maintenance-summary.png" alt="Spark maintenance JSON summary" loading="lazy"></a><figcaption><span class="num">11</span>Spark: 156 files to 5, 366,350 rows before and after</figcaption></figure>
+      <figure><a href="lab/images/12-argocd-sync.png"><img src="lab/images/12-argocd-sync.png" alt="Argo CD history showing a synced revision" loading="lazy"></a><figcaption><span class="num">12</span>Argo CD: the sync of a change</figcaption></figure>
+      <figure><a href="lab/images/13-security-test-pt1.png"><img src="lab/images/13-security-test-pt1.png" alt="Terminal output of make security-test" loading="lazy"></a><figcaption><span class="num">13</span><code>make security-test</code>: Kafka, network, admission</figcaption></figure>
+      <figure><a href="lab/images/14-alertmanager-firing.png"><img src="lab/images/14-alertmanager-firing.png" alt="Alertmanager with KafkaBrokerDown firing" loading="lazy"></a><figcaption><span class="num">14</span>Alertmanager: <code>KafkaBrokerDown</code> firing</figcaption></figure>
+      <figure><a href="lab/images/15-grafana-kafka-outage.png"><img src="lab/images/15-grafana-kafka-outage.png" alt="Grafana Kafka dashboard during the broker outage" loading="lazy"></a><figcaption><span class="num">15</span>Grafana: Kafka during the broker outage</figcaption></figure>
+      <figure><a href="lab/images/16-chaos-result.png"><img src="lab/images/16-chaos-result.png" alt="Terminal output of the broker isolation chaos experiment" loading="lazy"></a><figcaption><span class="num">16</span>Chaos: 63,850 sent, 63,850 in Iceberg, 0 lost</figcaption></figure>
+      <figure><a href="lab/images/17-ai-ops-test-pt1.png"><img src="lab/images/17-ai-ops-test-pt1.png" alt="Terminal output of make ai-ops-test" loading="lazy"></a><figcaption><span class="num">17</span><code>make ai-ops-test</code>: 37 guardrail checks</figcaption></figure>
+      <figure><a href="lab/images/19-aws-eks-cluster.png"><img src="lab/images/19-aws-eks-cluster.png" alt="AWS console showing the EKS cluster's three nodes" loading="lazy"></a><figcaption><span class="num">19</span>EKS: three Spot nodes in three zones</figcaption></figure>
+      <figure><a href="lab/images/20-aws-athena-count.png"><img src="lab/images/20-aws-athena-count.png" alt="Athena query editor counting 5,000 rows and 5,000 distinct event ids" loading="lazy"></a><figcaption><span class="num">20</span>Athena on AWS: 5,000 rows, 5,000 distinct</figcaption></figure>
+      <figure><a href="lab/images/21-argocd-eks-pt1.png"><img src="lab/images/21-argocd-eks-pt1.png" alt="Argo CD on EKS with every application Synced and Healthy" loading="lazy"></a><figcaption><span class="num">21</span>Argo CD on EKS: 14 apps Synced, Healthy</figcaption></figure>
+      <figure><a href="lab/images/22-aws-down-clean.png"><img src="lab/images/22-aws-down-clean.png" alt="Terminal output of make aws-down with every leftover check ok" loading="lazy"></a><figcaption><span class="num">22</span><code>make aws-down</code>: no leftovers</figcaption></figure>
+    </div>
+    <p>Screenshot 18 (a Langfuse trace) needs Bedrock model access and was skipped. Screenshots 01, 13, 17 and 21 have a second part in the repository.</p>
+  </section>
+
+  <section aria-labelledby="teardown">
+    <span class="eyebrow">Teardown</span>
+    <h2 id="teardown">Destroying it, and what that costs</h2>
+    <p><code>make aws-down</code> deletes the Kubernetes volumes and load balancers first, so AWS releases the EBS volumes and NLBs, then runs <code>terraform destroy</code>, deletes the environment's log groups, and checks for leftovers (EBS, load balancers, VPC, EKS, RDS, Terraform state). Locally, <code>make local-down</code> deletes the cluster and <code>docker desktop stop</code> stops Docker.</p>
+    <p>The environment costs about $0.40 an hour on three Spot nodes and nothing once destroyed. The bootstrap stack (state bucket, KMS key, CloudTrail, AWS Config, budget alerts) stays on purpose. Budget alerts notify; they do not stop spend.</p>
+  </section>
+
+  <section aria-labelledby="lessons">
+    <span class="eyebrow">Lessons learned</span>
+    <h2 id="lessons">What the build taught</h2>
+    <div class="cards">
+      <div><h3>For a customer</h3><ul>
+        <li>Exactly once is a design: client ids, <code>acks=all</code>, de-duplication state and a commit tied to the checkpoint together survive retries and restarts.</li>
+        <li>Streaming creates small files: compaction took 156 files to 5 and a full scan from 25.8 s to 4.7 s on the same rows.</li>
+        <li>Ephemeral environments keep cloud cost predictable.</li>
+        <li>AI in operations needs guardrails: read-only tools, a person approves, a single-use token per action.</li>
+      </ul></div>
+      <div><h3>Struggles</h3><ul>
+        <li>A 3-second checkpoint interval filled the local S3 stand-in and stalled Flink; it drained 500,000 waiting events exactly once afterwards.</li>
+        <li>Recovery without Flink HA restored an old savepoint and wrote 500,000 duplicate rows; HA is now required.</li>
+        <li>No Bedrock access to Claude, so no live diagnosis yet.</li>
+        <li>Windows reserved ports and a drifting Docker VM clock; an unfixed Flink metrics bug (FLINK-35321).</li>
+      </ul></div>
+      <div><h3>Saving money</h3><ul>
+        <li>About $0.40 an hour while up, nothing after <code>make aws-down</code>; the dev Terraform state is empty.</li>
+        <li>AgentCore held the VPC for 8 h 15 min after the Runtime was deleted.</li>
+        <li>EKS recreated its log group after destroy, and Loki's and Tempo's volumes were once left behind; <code>aws-down</code> now handles both.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="troubleshooting">
+    <span class="eyebrow">Troubleshooting</span>
+    <h2 id="troubleshooting">What broke, and the fix</h2>
+    <div class="table">
+      <table>
+        <thead><tr><th>Problem</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>SeaweedFS OOM-killed</td><td>Memory limit from 1 GiB to 3 GiB</td></tr>
+          <tr><td>Ingestion service never ready</td><td>It now exits on a failed start, so Kubernetes restarts it</td></tr>
+          <tr><td>MCP server crashed on EKS with TLS</td><td>Start-up runs once for both listeners; a test covers it</td></tr>
+          <tr><td>Flink 2.x on Java 21</td><td>Only experimental upstream, so the job runs on <code>flink:2.1.3-java17</code></td></tr>
+          <tr><td>Spark MERGE from a view failed</td><td>The aggregation sits inside the MERGE as a SQL subquery</td></tr>
+          <tr><td>Gateway rejected every call</td><td>AgentCore adds its own space after the credential prefix</td></tr>
+          <tr><td><code>kubectl</code> hangs after a restart</td><td><code>docker restart lakehouse-control-plane</code></td></tr>
+          <tr><td>Port-forward "forbidden"</td><td>Windows reserved the port: <code>netsh interface ipv4 show excludedportrange protocol=tcp</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>No <code>systemctl</code> or <code>sudo</code> was needed: every service runs as a Kubernetes workload, and containers run as non-root under Pod Security <code>restricted</code>.</p>
+  </section>
+
+  <section aria-labelledby="references">
+    <span class="eyebrow">References</span>
+    <h2 id="references">Documentation used</h2>
+    <ul class="links">
+      <li><a href="https://registry.terraform.io/providers/hashicorp/aws/latest/docs">Terraform AWS provider</a></li>
+      <li><a href="https://docs.aws.amazon.com/eks/latest/userguide/what-is-eks.html">Amazon EKS</a></li>
+      <li><a href="https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html">Amazon Bedrock AgentCore</a></li>
+      <li><a href="https://docs.aws.amazon.com/athena/latest/ug/querying-iceberg.html">Amazon Athena and Iceberg</a></li>
+      <li><a href="https://kafka.apache.org/documentation/">Apache Kafka</a> and <a href="https://strimzi.io/documentation/">Strimzi</a></li>
+      <li><a href="https://nightlies.apache.org/flink/flink-docs-release-2.1/">Apache Flink</a> and its <a href="https://nightlies.apache.org/flink/flink-kubernetes-operator-docs-stable/">Kubernetes operator</a></li>
+      <li><a href="https://iceberg.apache.org/docs/latest/">Apache Iceberg</a></li>
+      <li><a href="https://spark.apache.org/docs/latest/">Apache Spark</a></li>
+      <li><a href="https://argo-cd.readthedocs.io/">Argo CD</a> and <a href="https://helm.sh/docs/">Helm</a></li>
+      <li><a href="https://kind.sigs.k8s.io/">kind</a>, <a href="https://kyverno.io/docs/">Kyverno</a>, <a href="https://chaos-mesh.org/docs/">Chaos Mesh</a></li>
+      <li><a href="https://modelcontextprotocol.io/">Model Context Protocol</a>, <a href="https://ai.pydantic.dev/">Pydantic AI</a>, <a href="https://langfuse.com/docs">Langfuse</a></li>
+      <li><a href="https://trivy.dev/">Trivy</a> and <a href="https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final">NIST SP 800-53 Rev. 5</a></li>
+    </ul>
+    <p>No books, articles or videos; official documentation and the projects' GitHub repositories only.</p>
+  </section>
+
+  <section aria-labelledby="next">
+    <span class="eyebrow">Open items</span>
+    <h2 id="next">Not done yet</h2>
+    <ul class="gaps">
+      <li>Live agent runs and the eval suite, once Bedrock access to Claude is granted; three of six eval scenarios still need to be captured.</li>
+      <li>A re-run of the zone-outage experiment with the fixed harness.</li>
+      <li>No CI pipeline yet: the checks run through <code>make</code>. The planned Cognito web dashboard is not built.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p><strong>Author:</strong> T.I.Q.S. (solo project) &middot; <strong>Group:</strong> jerMutants - The Brotherhood of the Wolfpack &middot; <strong>Group leader:</strong> John Sweeney &middot; <strong>Version:</strong> 1.1, 2026-11-13</p>
+    <p>Built with Claude Code as a pair programmer. Diagrams: <code>docs/diagrams/</code>. License: MIT.</p>
+    <p>Logos identify the technologies only and imply no endorsement. All names and logos are trademarks of their owners; Apache Kafka, Flink, Spark and Iceberg are trademarks of the Apache Software Foundation; AWS service names are trademarks of Amazon.com, Inc. or its affiliates; Kubernetes is a trademark of the Linux Foundation.</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll('.tabs button');
+  var img = document.getElementById('flowimg');
+  var text = document.getElementById('flowtext');
+  var panel = document.getElementById('flowpanel');
+  function select(btn) {
+    tabs.forEach(function (b) { b.setAttribute('aria-selected', b === btn ? 'true' : 'false'); b.tabIndex = b === btn ? 0 : -1; });
+    img.src = 'diagrams/' + btn.dataset.file;
+    img.alt = btn.textContent + ': numbered steps with measured results';
+    text.textContent = btn.dataset.text;
+    panel.setAttribute('aria-labelledby', btn.id);
+  }
+  tabs.forEach(function (btn, i) {
+    btn.tabIndex = i === 0 ? 0 : -1;
+    btn.addEventListener('click', function () { select(btn); });
+    btn.addEventListener('keydown', function (e) {
+      var k = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!k) return;
+      var next = tabs[(i + k + tabs.length) % tabs.length];
+      select(next); next.focus(); e.preventDefault();
+    });
+  });
+})();
+</script>

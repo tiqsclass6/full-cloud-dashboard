@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "Event",
+  "namespace": "io.lakehouse.events",
+  "doc": "A single telemetry event accepted by the ingestion service.",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "Unique id (UUID). Downstream jobs de-duplicate on it."},
+    {"name": "source", "type": "string", "doc": "Emitter id; also the Kafka message key (per-source ordering)."},
+    {"name": "type", "type": "string", "doc": "Event type, e.g. cpu.usage."},
+    {"name": "event_time", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "When the event happened (producer clock)."},
+    {"name": "ingest_time", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "When the service accepted the event."},
+    {"name": "value", "type": ["null", "double"], "default": null, "doc": "Optional numeric measurement."},
+    {"name": "attributes", "type": {"type": "map", "values": "string"}, "default": {}, "doc": "Free-form string dimensions."}
+  ]
+}

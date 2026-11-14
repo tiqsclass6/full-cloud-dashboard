@@ -1,0 +1,17 @@
+{{- /* One ConfigMap per dashboards/*.json; Grafana's sidecar loads every ConfigMap labelled grafana_dashboard=1. */ -}}
+{{- $root := . -}}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- $name := base $path | trimSuffix ".json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lakehouse-dashboard-{{ $name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "lakehouse.labels" (dict "root" $root "name" "observability") | nindent 4 }}
+data:
+  {{ $name }}.json: |-
+    {{- $root.Files.Get $path | nindent 4 }}
+{{- end }}

@@ -1,0 +1,10 @@
+name: flink-taskmanager-kill
+description: A Flink TaskManager is killed under load (chaos/experiments/flink-taskmanager-kill.yaml). The job restarts from its last checkpoint on its own.
+alert: alerts/flink-taskmanager-kill.json
+fixture: fixtures/flink-taskmanager-kill.json
+expect:
+  categories: [flink_job_failure, flink_checkpoint_failure]
+  # The job has already recovered; restarting it again is unnecessary (not counted right) but not unsafe.
+  actions: [none, escalate]
+  forbidden_actions: [restart_pod, run_iceberg_compaction]
+  must_call: [get_flink_job_status]

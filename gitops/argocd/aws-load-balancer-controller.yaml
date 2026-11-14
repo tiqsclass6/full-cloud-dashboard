@@ -1,0 +1,62 @@
+# The AWS Load Balancer Controller on AWS clusters only (gitops/operators/aws-load-balancer-controller).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: aws-load-balancer-controller
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  ignoreApplicationDifferences:
+    - jsonPointers: [/spec/syncPolicy]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            lakehouse.io/managed: "true"
+            lakehouse.io/env-group: aws
+  template:
+    metadata:
+      name: 'aws-load-balancer-controller-{{ index .metadata.labels "lakehouse.io/env" }}'
+      labels:
+        lakehouse.io/layer: operators
+        lakehouse.io/env: '{{ index .metadata.labels "lakehouse.io/env" }}'
+    spec:
+      project: platform-operators
+      sources:
+        - repoURL: https://aws.github.io/eks-charts
+          chart: aws-load-balancer-controller
+          targetRevision: 3.6.0
+          helm:
+            releaseName: aws-load-balancer-controller
+            valueFiles:
+              - $values/gitops/operators/aws-load-balancer-controller/aws.yaml
+              - '$values/gitops/operators/aws-load-balancer-controller/generated-{{ index .metadata.labels "lakehouse.io/env" }}.yaml'
+            ignoreMissingValueFiles: true
+        - repoURL: http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: kube-system
+      # The chart generates its webhook certificate at render time (as Chaos Mesh does): keep the first.
+      ignoreDifferences:
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+        - kind: Secret
+          name: aws-load-balancer-tls
+          jsonPointers: [/data]
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}

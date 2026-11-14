@@ -1,0 +1,2 @@
+# rules/*.yaml become PrometheusRules and dashboards/*.json Grafana ConfigMaps, both in monitoring.
+namespace: monitoring

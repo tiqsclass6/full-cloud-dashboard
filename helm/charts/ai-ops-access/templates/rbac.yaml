@@ -1,0 +1,138 @@
+{{- $ctx := dict "root" $ "name" "ai-ops" -}}
+{{- $ns := .Values.namespace -}}
+{{- $sa := .Values.serviceAccounts -}}
+# Read-only. Secrets and ConfigMaps are not in this role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ai-ops-platform-reader
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkas, kafkanodepools, kafkatopics]
+    verbs: [get, list]
+  - apiGroups: [flink.apache.org]
+    resources: [flinkdeployments]
+    verbs: [get, list]
+  - apiGroups: [sparkoperator.k8s.io]
+    resources: [sparkapplications, scheduledsparkapplications]
+    verbs: [get, list]
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ai-ops-node-reader
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ai-ops-node-reader
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: ai-ops-node-reader}
+subjects:
+  - {kind: ServiceAccount, name: {{ $sa.mcp }}, namespace: {{ $ns }}}
+{{- range .Values.readNamespaces }}
+---
+# The reader role is bound per namespace, so the tools see only the namespaces listed in values.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-ops-platform-reader
+  namespace: {{ . }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: ai-ops-platform-reader}
+subjects:
+  - {kind: ServiceAccount, name: {{ $sa.mcp }}, namespace: {{ $ns }}}
+{{- end }}
+{{- range .Values.restartNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-ops-restart-pods
+  namespace: {{ . }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-ops-restart-pods
+  namespace: {{ . }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ai-ops-restart-pods}
+subjects:
+  - {kind: ServiceAccount, name: {{ $sa.control }}, namespace: {{ $ns }}}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-ops-flink-restart
+  namespace: {{ .Values.flink.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+rules:
+  - apiGroups: [flink.apache.org]
+    resources: [flinkdeployments]
+    resourceNames: [{{ .Values.flink.deployment }}]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-ops-flink-restart
+  namespace: {{ .Values.flink.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ai-ops-flink-restart}
+subjects:
+  - {kind: ServiceAccount, name: {{ $sa.control }}, namespace: {{ $ns }}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-ops-spark-run
+  namespace: {{ .Values.sparkNamespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+rules:
+  - apiGroups: [sparkoperator.k8s.io]
+    resources: [scheduledsparkapplications]
+    resourceNames: {{ toJson .Values.compactionSchedules }}
+    verbs: [get]
+  # create cannot be limited by name; policies/templates/ops-control-spark.yaml limits what may be created.
+  - apiGroups: [sparkoperator.k8s.io]
+    resources: [sparkapplications]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-ops-spark-run
+  namespace: {{ .Values.sparkNamespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ai-ops-spark-run}
+subjects:
+  - {kind: ServiceAccount, name: {{ $sa.control }}, namespace: {{ $ns }}}

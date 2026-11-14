@@ -1,0 +1,65 @@
+{
+  "label": "g1-gitops",
+  "gc": "g1",
+  "window_seconds": 55.0,
+  "load": {
+    "target_events_per_second": 30000,
+    "measured_seconds": 55.0,
+    "requests": 33000,
+    "achieved_events_per_second": 30000,
+    "outcomes": {
+      "http_200": 33000
+    },
+    "latency_ms": {
+      "p50": 7.172095,
+      "p90": 10.297343,
+      "p99": 24.854527,
+      "p99.9": 38.633471,
+      "max": 53.903359
+    }
+  },
+  "gc_stats": {
+    "collections": 295,
+    "collections_per_second": 5.36,
+    "total_pause_ms": 466.3,
+    "pause_time_percent": 0.848,
+    "pause_ms": {
+      "p50": 1.45,
+      "p99": 3.53,
+      "max": 6.24
+    }
+  },
+  "heap_mib": {
+    "peak_used": 62.5,
+    "live_after_gc_median": 18.2
+  },
+  "cpu": {
+    "jvm_mean_percent_of_machine": 4.1,
+    "jvm_max_percent_of_machine": 9.9
+  },
+  "allocation": {
+    "sampled_mib_per_second": 238.8,
+    "top_sites_percent": {
+      "org/apache/kafka/common/compress/Lz4BlockOutputStream.<init>": 58.6,
+      "java/nio/ByteBuffer.wrap": 5.0,
+      "java/io/ByteArrayOutputStream.<init>": 2.4,
+      "java/io/InputStream.readNBytes": 2.4,
+      "java/util/Arrays.copyOfRangeByte": 1.8,
+      "java/util/regex/Matcher.<init>": 1.6,
+      "java/lang/StringUTF16.compress": 1.6,
+      "java/util/Arrays.copyOf": 1.5
+    }
+  },
+  "hot_methods_percent": {
+    "java/util/HashMap.getNode": 7.2,
+    "org/apache/avro/io/BinaryEncoder.writeString": 6.0,
+    "java/io/ByteArrayOutputStream.ensureCapacity": 3.4,
+    "java/util/concurrent/CompletableFuture.postComplete": 3.0,
+    "io/lakehouse/ingest/EventIngestor.lambda$ingest$0": 3.0,
+    "org/apache/avro/generic/GenericDatumWriter.write": 2.6,
+    "java/nio/ByteBuffer.position": 2.4,
+    "com/fasterxml/jackson/core/json/UTF8StreamJsonParser.parseMediumName": 2.3,
+    "org/apache/avro/io/Encoder.writeString": 2.1,
+    "org/apache/kafka/common/utils/ByteUtils.writeVarint": 2.1
+  }
+}

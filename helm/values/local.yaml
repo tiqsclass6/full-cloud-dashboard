@@ -1,0 +1,70 @@
+# Local kind cluster. Everything runs in-cluster, including stand-ins for managed AWS services.
+global:
+  environment: local
+  imageRegistry: ""
+  imageTag: dev
+  s3:
+    endpoint: http://s3.data.svc:8333
+    credentialsSecret: s3-credentials
+
+# Documented exception: locally data also holds root-starting stand-ins (Postgres, SeaweedFS); AWS enforces restricted.
+podSecurity:
+  levels:
+    data: baseline
+
+# Local stand-ins are reached across namespaces; the scripts' toolbox may reach every platform namespace.
+network-policies:
+  diagnostics:
+    enabled: true
+  extraFlows:
+    - name: apps-to-iceberg-rest
+      from: {namespace: apps}
+      to: {namespace: data, podLabels: {app: iceberg-rest}, ports: [8181]}
+    - name: apps-to-s3
+      from: {namespace: apps}
+      to: {namespace: data, podLabels: {app: seaweedfs}, ports: [8333]}
+    - name: ops-control-to-postgres
+      from: {namespace: ai-ops, podLabels: {app: ops-control}}
+      to: {namespace: data, podLabels: {app: postgres}, ports: [5432]}
+    # Langfuse keeps its data in the local Postgres and S3 stand-ins.
+    - name: langfuse-to-postgres
+      from: {namespace: langfuse}
+      to: {namespace: data, podLabels: {app: postgres}, ports: [5432]}
+    - name: langfuse-to-s3
+      from: {namespace: langfuse}
+      to: {namespace: data, podLabels: {app: seaweedfs}, ports: [8333]}
+    - name: ops-agent-to-langfuse
+      from: {namespace: ai-ops, podLabels: {app: ops-agent}}
+      to: {namespace: langfuse, podLabels: {app.kubernetes.io/name: langfuse}, ports: [3000]}
+
+# Images allowed in the platform namespaces on kind: locally built images and the stand-ins.
+policies:
+  validation:
+    extraAllowedImagePrefixes:
+      - "lakehouse/"
+      - "postgres:"
+      - "chrislusf/seaweedfs:"
+      - "amazon/aws-cli:"
+      - "curlimages/curl:"
+
+local-data:
+  enabled: true
+
+kafka-cluster:
+  topics:
+    # Used only by local/scripts/smoke.sh, so test messages never land in events.raw.
+    smoke.test:
+      partitions: 1
+      replicas: 3
+      config:
+        min.insync.replicas: "2"
+        retention.ms: "3600000"
+
+flink-jobs:
+  # Throwaway keys for the local S3 stand-in only (same values as the local-data chart).
+  s3StaticKeys:
+    accessKey: lakehouse-local
+    secretKey: lakehouse-local-secret
+
+spark-jobs:
+  suspend: true    # schedules exist but do not run on their own on a laptop

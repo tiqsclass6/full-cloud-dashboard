@@ -1,0 +1,15 @@
+{{- /* One PrometheusRule per rules/*.yaml (plain rule files for promtool); .Files.Get keeps Helm off their templates. */ -}}
+{{- $root := . -}}
+{{- range $path, $_ := .Files.Glob "rules/*.yaml" }}
+{{- $name := base $path | trimSuffix ".yaml" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: lakehouse-{{ $name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" (dict "root" $root "name" "observability") | nindent 4 }}
+spec:
+  {{- $root.Files.Get $path | nindent 2 }}
+{{- end }}

@@ -1,0 +1,137 @@
+{{- $root := . -}}
+{{- range $ns, $cfg := .Values.namespaces }}
+{{- $ctx := dict "root" $root "name" "network-policies" }}
+---
+# Deny everything not explicitly allowed below or in the flow policies.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ $ns }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: {{ $ns }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+# Pods of one namespace talk freely to each other.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: {{ $ns }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrapes
+  namespace: {{ $ns }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $root.Values.monitoringNamespace }}
+{{- if $cfg.httpsEgress }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-https-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ $root.Values.httpsEgress.cidr }}
+            except:
+              {{- toYaml $root.Values.httpsEgress.except | nindent 14 }}
+      ports:
+        {{- range $root.Values.httpsEgress.ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+{{- end }}
+{{- with $root.Values.diagnostics }}
+{{- if .enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-diagnostics
+  namespace: {{ $ns }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .podLabels | nindent 14 }}
+{{- if eq $ns .namespace }}
+---
+# The diagnostics pod itself may reach anything in the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-diagnostics-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml .podLabels | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

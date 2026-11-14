@@ -1,0 +1,24 @@
+# Defaults match the local kind deployment; environment files in helm/values override them.
+namespace: data
+replicaCount: 1
+
+image:
+  repository: apicurio/apicurio-registry
+  tag: "3.2.1"
+  external: true     # third-party image: never prefixed with global.imageRegistry
+
+# Locally the in-cluster Postgres; on AWS an RDS endpoint, with credentials from a synced Secret.
+datasource:
+  url: jdbc:postgresql://postgres.data.svc:5432/apicurio
+  credentialsSecret: postgres-credentials
+  usernameKey: POSTGRES_USER
+  passwordKey: POSTGRES_PASSWORD
+
+corsOrigins: "*"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    memory: 768Mi

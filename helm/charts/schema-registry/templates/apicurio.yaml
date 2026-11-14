@@ -1,0 +1,78 @@
+{{- $ctx := dict "root" $ "name" "apicurio-registry" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: apicurio-registry
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "lakehouse.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apicurio-registry
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lakehouse.labels" $ctx | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "lakehouse.podSecurityContext" (dict "uid" 1001) | nindent 8 }}
+      containers:
+        - name: apicurio-registry
+          image: {{ include "lakehouse.image" (dict "root" $ "image" .Values.image) }}
+          securityContext:
+            {{- include "lakehouse.containerSecurityContext" $ctx | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APICURIO_STORAGE_KIND
+              value: sql
+            - name: APICURIO_STORAGE_SQL_KIND
+              value: postgresql
+            - name: APICURIO_DATASOURCE_URL
+              value: {{ .Values.datasource.url | quote }}
+            - name: APICURIO_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.datasource.credentialsSecret }}
+                  key: {{ .Values.datasource.usernameKey }}
+            - name: APICURIO_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.datasource.credentialsSecret }}
+                  key: {{ .Values.datasource.passwordKey }}
+            - name: QUARKUS_HTTP_CORS_ORIGINS
+              value: {{ .Values.corsOrigins | quote }}
+          # Apicurio v3 serves health on a separate management port.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # Read-only root filesystem: Quarkus only needs a writable /tmp.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

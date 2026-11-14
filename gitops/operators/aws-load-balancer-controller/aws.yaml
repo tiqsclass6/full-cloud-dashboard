@@ -1,0 +1,11 @@
+# Provisions only the internal NLB in front of the MCP endpoint (AgentCore Gateway); values from generated-<env>.yaml.
+replicaCount: 1
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+# Only Services with loadBalancerClass service.k8s.aws/nlb; no Ingress resources are used.
+enableServiceMutatorWebhook: false
+createIngressClassResource: false
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 256Mi}

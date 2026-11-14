@@ -1,0 +1,104 @@
+{{- $root := . -}}
+{{- range .Values.nodePools }}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: {{ .name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    strimzi.io/cluster: {{ $root.Values.clusterName }}
+    {{- include "lakehouse.stableLabels" (dict "root" $root "name" (printf "kafka-%s" .name)) | nindent 4 }}
+spec:
+  replicas: {{ .replicas }}
+  roles:
+    {{- toYaml .roles | nindent 4 }}
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: {{ .storage.size }}
+        {{- with .storage.storageClass }}
+        class: {{ . }}
+        {{- end }}
+        deleteClaim: false
+        {{- with .storage.kraftMetadata }}
+        kraftMetadata: {{ . }}
+        {{- end }}
+  resources:
+    {{- toYaml .resources | nindent 4 }}
+  jvmOptions:
+    -Xms: {{ .heap }}
+    -Xmx: {{ .heap }}
+  template:
+    pod:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              strimzi.io/pool-name: {{ .name }}
+{{- end }}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: {{ .Values.clusterName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.stableLabels" (dict "root" $ "name" "kafka") | nindent 4 }}
+spec:
+  kafka:
+    listeners:
+      {{- toYaml .Values.listeners | nindent 6 }}
+    {{- with .Values.authorization }}
+    authorization:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    rack:
+      topologyKey: topology.kubernetes.io/zone
+    template:
+      # Label the cluster CA certificate so the Kyverno policy copies it to the client namespaces.
+      clusterCaCert:
+        metadata:
+          labels:
+            {{ .Values.shareLabel }}: "true"
+    config:
+      {{- toYaml .Values.config | nindent 6 }}
+    metricsConfig:
+      type: strimziMetricsReporter
+      values:
+        allowList:
+          {{- range .Values.metricsAllowList }}
+          - {{ . | quote }}
+          {{- end }}
+  entityOperator:
+    topicOperator:
+      resources:
+        {{- toYaml .Values.operatorResources.topicOperator | nindent 8 }}
+    userOperator:
+      resources:
+        {{- toYaml .Values.operatorResources.userOperator | nindent 8 }}
+  kafkaExporter:
+    topicRegex: ".*"
+    groupRegex: ".*"
+    resources:
+      {{- toYaml .Values.operatorResources.kafkaExporter | nindent 6 }}
+{{- range $topic, $spec := .Values.topics }}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: {{ $topic }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    strimzi.io/cluster: {{ $root.Values.clusterName }}
+    {{- include "lakehouse.stableLabels" (dict "root" $root "name" "kafka-topics") | nindent 4 }}
+spec:
+  partitions: {{ $spec.partitions }}
+  replicas: {{ $spec.replicas }}
+  config:
+    {{- toYaml $spec.config | nindent 4 }}
+{{- end }}

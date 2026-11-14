@@ -1,0 +1,58 @@
+apiVersion: v2
+name: platform
+description: Umbrella chart for the lakehouse platform. Environment overlays live in helm/values.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: lakehouse-lib
+    version: 0.1.0
+    repository: file://../lakehouse-lib
+  - name: policies
+    version: 0.1.0
+    repository: file://../policies
+    condition: policies.enabled
+  - name: network-policies
+    version: 0.1.0
+    repository: file://../network-policies
+    condition: network-policies.enabled
+  - name: secrets
+    version: 0.1.0
+    repository: file://../secrets
+    condition: secrets.enabled
+  - name: local-data
+    version: 0.1.0
+    repository: file://../local-data
+    condition: local-data.enabled
+  - name: schema-registry
+    version: 0.1.0
+    repository: file://../schema-registry
+    condition: schema-registry.enabled
+  - name: kafka-cluster
+    version: 0.1.0
+    repository: file://../kafka-cluster
+    condition: kafka-cluster.enabled
+  - name: ingestion-service
+    version: 0.1.0
+    repository: file://../ingestion-service
+    condition: ingestion-service.enabled
+  - name: flink-jobs
+    version: 0.1.0
+    repository: file://../flink-jobs
+    condition: flink-jobs.enabled
+  - name: spark-jobs
+    version: 0.1.0
+    repository: file://../spark-jobs
+    condition: spark-jobs.enabled
+  - name: iceberg-exporter
+    version: 0.1.0
+    repository: file://../iceberg-exporter
+    condition: iceberg-exporter.enabled
+  - name: observability
+    version: 0.1.0
+    repository: file://../observability
+    condition: observability.enabled
+  - name: ai-ops
+    version: 0.1.0
+    repository: file://../ai-ops
+    condition: ai-ops.enabled

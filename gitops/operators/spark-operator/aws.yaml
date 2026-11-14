@@ -1,0 +1,20 @@
+# Kubeflow Spark operator on EKS. The driver/executor service account gets an IAM role (IRSA).
+spark:
+  jobNamespaces:
+    - apps
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/lakehouse-spark-jobs   # placeholder until Phase 6
+webhook:
+  enable: false
+controller:
+  resources:
+    requests: {cpu: 200m, memory: 384Mi}
+    limits: {memory: 768Mi}
+
+# Job outcome metrics come from the operator: Spark jobs are short batch runs.
+prometheus:
+  metrics:
+    enable: true
+  podMonitor:
+    create: true

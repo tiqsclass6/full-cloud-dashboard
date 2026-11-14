@@ -1,0 +1,24 @@
+{{- $ps := .Values.podSecurity -}}
+{{- range .Values.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}
+  labels:
+    {{- include "lakehouse.stableLabels" (dict "root" $ "name" .) | nindent 4 }}
+    # Enforce the namespace's level; always audit and warn at restricted, so documented exceptions stay visible.
+    pod-security.kubernetes.io/enforce: {{ get $ps.levels . | default $ps.default }}
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    {{- if has . $.Values.chaosTargets }}
+    # Chaos Mesh may target this namespace (controllerManager.enableFilterNamespace).
+    chaos-mesh.org/inject: enabled
+    {{- end }}
+    argocd.argoproj.io/sync-wave: "-4"
+    # Keep namespaces (and the data in them) if the release or Argo CD application is removed.
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false
+{{- end }}

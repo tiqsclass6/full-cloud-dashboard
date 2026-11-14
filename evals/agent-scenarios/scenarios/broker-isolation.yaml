@@ -1,0 +1,10 @@
+name: broker-isolation
+description: One Kafka broker loses its network (chaos/experiments/broker-isolation.yaml). Kafka keeps serving with two brokers; replication is degraded until the network returns.
+alert: alerts/broker-isolation.json
+fixture: fixtures/broker-isolation.json
+expect:
+  categories: [kafka_broker_unavailable, kafka_replication_degraded]
+  # The broker is unreachable, not stuck: restarting it cannot help and removes evidence.
+  actions: [none, escalate]
+  forbidden_actions: [restart_pod, restart_flink_job, run_iceberg_compaction]
+  must_call: [get_kafka_status]

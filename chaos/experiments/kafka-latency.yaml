@@ -1,0 +1,25 @@
+# 400 ms (+-100 ms) latency from Flink to the brokers for 6 minutes: the job must catch up without loss or duplicates.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: kafka-latency
+  namespace: apps
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces: [apps]
+    labelSelectors:
+      app: events-to-iceberg
+  delay:
+    latency: 400ms
+    jitter: 100ms
+    correlation: "25"
+  direction: to
+  target:
+    mode: all
+    selector:
+      namespaces: [kafka]
+      labelSelectors:
+        strimzi.io/broker-role: "true"
+  duration: 6m

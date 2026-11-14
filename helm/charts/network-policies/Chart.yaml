@@ -1,0 +1,10 @@
+apiVersion: v2
+name: network-policies
+description: Default-deny network policies for the platform namespaces and the explicit flows between them.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: lakehouse-lib
+    version: 0.1.0
+    repository: file://../lakehouse-lib

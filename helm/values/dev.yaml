@@ -1,0 +1,39 @@
+# dev on AWS, after values/aws.yaml: smallest footprint; schedules run.
+global:
+  environment: dev
+  imageTag: "0.1.0"
+
+flink-jobs:
+  storage:
+    checkpointsDir: s3://lakehouse-dev-checkpoints-ACCOUNT/flink/checkpoints
+    savepointsDir: s3://lakehouse-dev-checkpoints-ACCOUNT/flink/savepoints
+  highAvailability:
+    enabled: true
+    storageDir: s3://lakehouse-dev-checkpoints-ACCOUNT/flink/ha
+
+# Three spot xlarge nodes: smaller brokers and volumes than staging/prod.
+kafka-cluster:
+  nodePools:
+    - name: controllers
+      replicas: 3
+      roles: [controller]
+      storage: {size: 10Gi, storageClass: gp3, kraftMetadata: shared}
+      resources:
+        requests: {cpu: 100m, memory: 768Mi}
+        limits: {memory: 1Gi}
+      heap: 512m
+    - name: brokers
+      replicas: 3
+      roles: [broker]
+      storage: {size: 20Gi, storageClass: gp3}
+      resources:
+        requests: {cpu: 500m, memory: 2Gi}
+        limits: {memory: 3Gi}
+      heap: 1g
+
+ingestion-service:
+  tracing:
+    sampleRatio: "0.1"             # under load, 10% of new traces is plenty
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 4

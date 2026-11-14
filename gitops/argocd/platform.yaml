@@ -1,0 +1,57 @@
+# Values layer as <env-group>.yaml, <env>.yaml, then generated/<env>.yaml (AWS only).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  ignoreApplicationDifferences:
+    - jsonPointers: [/spec/syncPolicy]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            lakehouse.io/managed: "true"
+  template:
+    metadata:
+      name: 'platform-{{ index .metadata.labels "lakehouse.io/env" }}'
+      labels:
+        lakehouse.io/layer: platform
+        lakehouse.io/env: '{{ index .metadata.labels "lakehouse.io/env" }}'
+    spec:
+      project: lakehouse
+      source:
+        repoURL: http://gitea-http.gitops.svc.cluster.local:3000/lakehouse/platform.git
+        targetRevision: main
+        path: helm/charts/platform
+        helm:
+          releaseName: platform
+          valueFiles:
+            - '../../values/{{ index .metadata.labels "lakehouse.io/env-group" }}.yaml'
+            - '../../values/{{ index .metadata.labels "lakehouse.io/env" }}.yaml'
+            - '../../values/generated/{{ index .metadata.labels "lakehouse.io/env" }}.yaml'
+          ignoreMissingValueFiles: true
+      destination:
+        server: '{{ .server }}'
+        namespace: apps
+      # Fields operations change at run time (stop/start a Flink job, force a restart).
+      ignoreDifferences:
+        - group: flink.apache.org
+          kind: FlinkDeployment
+          jsonPointers:
+            - /spec/job/state
+            - /spec/restartNonce
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+          # The operators' CRDs may not exist yet on a fresh cluster; retries cover the ordering.
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 20
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}

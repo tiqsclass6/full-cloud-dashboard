@@ -1,0 +1,54 @@
+# Default deny per namespace plus DNS, intra-namespace, scrape and HTTPS egress; Kafka's 9093 ingress comes from Strimzi.
+
+namespaces:
+  apps:
+    httpsEgress: true      # Flink HA (Kubernetes API); on AWS also S3, STS (IRSA) and Glue
+  data:
+    httpsEgress: false
+  kafka:
+    httpsEgress: true      # Strimzi operators (Kubernetes API)
+  ai-ops:
+    httpsEgress: true      # Kubernetes API, Amazon Bedrock, Slack (Socket Mode); on AWS also STS
+
+monitoringNamespace: monitoring
+
+# Kubernetes API (443, 6443 after DNAT) and AWS endpoints; instance metadata is excluded (pods use IRSA).
+httpsEgress:
+  cidr: 0.0.0.0/0
+  except: [169.254.169.254/32]
+  ports: [443, 6443]
+
+# A diagnostics pod that may reach every platform namespace (the local toolbox used by the scripts).
+diagnostics:
+  enabled: false
+  namespace: data
+  podLabels: {app: toolbox}
+
+# One entry per real dependency: egress opens in the source namespace, ingress in the target (when it is ours).
+flows:
+  - name: apps-to-kafka
+    from: {namespace: apps}
+    to: {namespace: kafka, ports: [9093]}
+    ingress: false         # Strimzi owns the broker ingress policy
+  - name: apps-to-schema-registry
+    from: {namespace: apps}
+    to: {namespace: data, podLabels: {app: apicurio-registry}, ports: [8080]}
+  - name: flink-operator-to-jobmanager
+    from: {namespace: flink-operator}
+    to: {namespace: apps, podLabels: {app: events-to-iceberg, component: jobmanager}, ports: [8081]}
+  - name: apps-to-otel-collector       # traces (OTLP) to Alloy, which forwards them to Tempo
+    from: {namespace: apps}
+    to: {namespace: observability, podLabels: {app.kubernetes.io/name: alloy}, ports: [4317, 4318]}
+  # The ops agent: Alertmanager sends it alerts; its tools query the observability stack.
+  - name: alertmanager-to-ops-agent
+    from: {namespace: monitoring, podLabels: {app.kubernetes.io/name: alertmanager}}
+    to: {namespace: ai-ops, podLabels: {app: ops-agent}, ports: [8080]}
+  - name: ops-tools-to-prometheus
+    from: {namespace: ai-ops, podLabels: {app: mcp-platform-tools}}
+    to: {namespace: monitoring, ports: [9090, 9093]}
+  - name: ops-tools-to-loki
+    from: {namespace: ai-ops, podLabels: {app: mcp-platform-tools}}
+    to: {namespace: observability, podLabels: {app.kubernetes.io/name: loki}, ports: [3100]}
+
+# Environment-specific flows, appended to `flows` (helm/values/local.yaml, helm/values/aws.yaml).
+extraFlows: []

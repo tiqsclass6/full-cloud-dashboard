@@ -1,0 +1,100 @@
+{{- $ctx := dict "root" $ "name" "iceberg-exporter" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.serviceAccount.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lakehouse.labels" $ctx | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- include "lakehouse.podSecurityContext" (dict "uid" 10001) | nindent 8 }}
+      containers:
+        - name: iceberg-exporter
+          image: {{ include "lakehouse.image" (dict "root" $ "image" .Values.image) }}
+          imagePullPolicy: {{ include "lakehouse.imagePullPolicy" $ctx }}
+          ports:
+            - name: metrics
+              containerPort: 9400
+          env:
+            - name: TABLES
+              value: {{ join "," .Values.tables | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ .Values.intervalSeconds | quote }}
+            - name: SMALL_FILE_BYTES
+              value: {{ .Values.smallFileBytes | int64 | quote }}
+            - name: MANAGEMENT_PORT
+              value: "9400"
+            {{- include "lakehouse.icebergEnv" $ctx | nindent 12 }}
+            {{- include "lakehouse.s3Env" $ctx | nindent 12 }}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: metrics}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health/live, port: metrics}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "lakehouse.containerSecurityContext" $ctx | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "lakehouse.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 9400
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: iceberg-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "lakehouse.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "lakehouse.selectorLabels" $ctx | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}

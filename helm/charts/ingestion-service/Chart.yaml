@@ -1,0 +1,10 @@
+apiVersion: v2
+name: ingestion-service
+description: HTTP ingestion service that validates events and publishes them to Kafka as Avro (acks=all).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: lakehouse-lib
+    version: 0.1.0
+    repository: file://../lakehouse-lib

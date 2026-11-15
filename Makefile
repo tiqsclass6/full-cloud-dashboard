@@ -44,7 +44,7 @@ help:
 	@echo "  make ai-creds                       1-hour model credentials for the agent on kind (assumes the bootstrap role)"
 	@echo "  make ai-ops-test                    guardrails: RBAC, tokens, network, approval path (no model needed)"
 	@echo "  make ai-eval RUNS=1                 replay the incident scenarios through the model and score them (costs tokens)"
-	@echo "  make ai-lock                        re-lock the Python dependencies (releases at least two weeks old)"
+	@echo "  make ai-lock [ARGS=...]             re-lock the Python dependencies (releases at least two weeks old); ARGS='--upgrade-package X' bumps X"
 	@echo "Docs:"
 	@echo "  make docs-format / docs-check       align Markdown tables (check = report only)"
 	@echo "  make diagrams                       light reference diagrams in build/diagrams (docs/diagrams holds the dark set)"
@@ -209,7 +209,7 @@ ai-eval:
 	bash $(SCRIPTS)/ai-eval.sh $(RUNS)
 
 ai-lock:
-	bash $(SCRIPTS)/ai-lock.sh
+	bash $(SCRIPTS)/ai-lock.sh $(ARGS)
 
 aws-agentcore:
 	bash $(SCRIPTS)/aws-agentcore.sh $(ENV) up

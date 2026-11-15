@@ -71,9 +71,3 @@ vulnerabilities:
     paths: ["opt/flink/usrlib/job.jar"]
     statement: jline builtins, shaded in hadoop-client-runtime; never used by the job (no shell).
     expired_at: 2027-01-31
-
-  # Fix not yet 14 days old (ai-lock.sh); re-lock with `make ai-lock` once it is, then drop this entry.
-  - id: CVE-2026-49272
-    paths: ["usr/local/lib/python3.14/site-packages/oauthlib-4.0.0.dist-info/METADATA"]
-    statement: oauthlib 4.0.0 in ai-ops and mcp-platform-tools. 4.0.1 (2026-10-31) is lockable from 2026-11-14.
-    expired_at: 2026-11-17

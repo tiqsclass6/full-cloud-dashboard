@@ -11,17 +11,17 @@ Commits are signed (GPG). Never commit secrets: credentials live in Kubernetes S
 
 ## **Checks**
 
-| **You changed**                        | **Run**                                                                                          |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| **Helm charts or values**              | `make helm-check`, then `make gitops-push` and `make gitops-status` on kind                      |
-| **Java services**                      | `./gradlew test` in the app directory (Testcontainers needs Docker)                              |
-| **Spark jobs**                         | `make local-spark-test`                                                                          |
-| **Agent, MCP tools**                   | `make ai-test`; with the cluster, `make ai-ops-test`                                             |
-| **Alert rules or dashboards**          | `make rules-test`; `make dashboards` (generated, do not edit the JSON by hand)                   |
-| **Kyverno policies, network policies** | `make security-test`                                                                             |
-| **Images or dependencies**             | `make security-scan`; Python dependencies are re-locked with `make ai-lock`                      |
-| **Terraform**                          | `make tf-fmt tf-validate`; `make aws-plan` and read the plan                                     |
-| **Markdown**                           | `make docs-format` (aligned tables); update the diagram in `docs/diagrams/` if its facts changed |
+| **You changed**                        | **Run**                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Helm charts or values**              | `make helm-check`, then `make gitops-push` and `make gitops-status` on kind                                              |
+| **Java services**                      | `./gradlew test` in the app directory (Testcontainers needs Docker)                                                      |
+| **Spark jobs**                         | `make local-spark-test`                                                                                                  |
+| **Agent, MCP tools**                   | `make ai-test`; with the cluster, `make ai-ops-test`                                                                     |
+| **Alert rules or dashboards**          | `make rules-test`; `make dashboards` (generated, do not edit the JSON by hand)                                           |
+| **Kyverno policies, network policies** | `make security-test`                                                                                                     |
+| **Images or dependencies**             | `make security-scan`; Python dependencies are re-locked with `make ai-lock` (`ARGS='--upgrade-package X'` to move a pin) |
+| **Terraform**                          | `make tf-fmt tf-validate`; `make aws-plan` and read the plan                                                             |
+| **Markdown**                           | `make docs-format` (aligned tables); update the diagram in `docs/diagrams/` if its facts changed                         |
 
 ## **Conventions**
 

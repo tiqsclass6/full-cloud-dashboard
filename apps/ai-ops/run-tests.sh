@@ -7,7 +7,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 docker build -q --target test -t lakehouse/ai-ops:test . >/dev/null
 
 NET="ai-ops-test-$$"; PG="ai-ops-test-pg-$$"
-cleanup() { docker rm -f "${PG}" >/dev/null 2>&1 || true; docker network rm "${NET}" >/dev/null 2>&1 || true; }
+# -v also removes the postgres image's anonymous data volume (one was left per run before).
+cleanup() { docker rm -f -v "${PG}" >/dev/null 2>&1 || true; docker network rm "${NET}" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker network create "${NET}" >/dev/null
 docker run -d --name "${PG}" --network "${NET}" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=ops postgres:17-alpine >/dev/null

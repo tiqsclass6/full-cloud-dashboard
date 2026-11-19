@@ -26,7 +26,7 @@ public final class EventIngestor {
 
     public record Overloaded() implements Result {}
 
-    /** {@code eventIds}: every event's id in request order, generated ones included, for retries. */
+    /** {@code eventIds}: every event's id in request order, so the source can retry exactly what failed. */
     public record Failed(int failedCount, String reason, List<String> eventIds, List<String> failedEventIds)
             implements Result {}
 
@@ -84,7 +84,7 @@ public final class EventIngestor {
         List<String> ids = new ArrayList<>(n);
         List<CompletableFuture<Void>> acks = new ArrayList<>(n);
         for (EventRequest event : events) {
-            String id = event.eventId() != null ? event.eventId() : EventSchema.newEventId();
+            String id = java.util.Objects.requireNonNull(event.eventId(), "validated above");
             ids.add(id);
             GenericRecord record = schema.toRecord(event, id);
             CompletableFuture<Void> ack = new CompletableFuture<>();

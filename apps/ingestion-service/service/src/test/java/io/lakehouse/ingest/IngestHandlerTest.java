@@ -61,6 +61,16 @@ class IngestHandlerTest {
         }
     }
 
+    /** Sources choose the id before the first send, so a retry can reuse it. */
+    private static String id() {
+        return java.util.UUID.randomUUID().toString();
+    }
+
+    /** One minimal event with a fresh id, as JSON. */
+    private static String ev(String source) {
+        return "{\"event_id\":\"" + id() + "\",\"source\":\"" + source + "\",\"type\":\"t\"}";
+    }
+
     private HttpRequest.Builder request() {
         return HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + "/v1/events"))
                 .header("Content-Type", "application/json");
@@ -90,7 +100,7 @@ class IngestHandlerTest {
     void acceptsSingleEventAndPublishesAvroToKafkaKeyedBySource() throws Exception {
         start(true, 100, 1 << 20, Duration.ofSeconds(5));
 
-        HttpResponse<String> response = post("{\"source\":\"host-1\",\"type\":\"cpu.usage\",\"value\":0.9,"
+        HttpResponse<String> response = post("{\"event_id\":\"" + id() + "\",\"source\":\"host-1\",\"type\":\"cpu.usage\",\"value\":0.9,"
                 + "\"attributes\":{\"region\":\"us-east-1\"}}");
 
         assertThat(response.statusCode()).isEqualTo(200);
@@ -112,7 +122,7 @@ class IngestHandlerTest {
         String id = "3f2b8c1e-5c1a-4c55-9a53-1b2f6b1f0c11";
 
         HttpResponse<String> response = post("[{\"event_id\":\"" + id + "\",\"source\":\"a\",\"type\":\"t\"},"
-                + "{\"source\":\"b\",\"type\":\"t\"},{\"source\":\"c\",\"type\":\"t\"}]");
+                + ev("b") + "," + ev("c") + "]");
 
         assertThat(response.statusCode()).isEqualTo(200);
         JsonNode ids = JSON.readTree(response.body()).get("event_ids");
@@ -125,7 +135,7 @@ class IngestHandlerTest {
     void rejectsInvalidEventsWithoutPublishingAnything() throws Exception {
         start(true, 100, 1 << 20, Duration.ofSeconds(5));
 
-        HttpResponse<String> response = post("[{\"source\":\"ok\",\"type\":\"t\"},{\"type\":\"t\"}]");
+        HttpResponse<String> response = post("[" + ev("ok") + ",{\"type\":\"t\"}]");
 
         assertThat(response.statusCode()).isEqualTo(400);
         String responseBody = java.util.Objects.requireNonNull(response.body());
@@ -139,7 +149,7 @@ class IngestHandlerTest {
         start(true, 100, 1 << 20, Duration.ofSeconds(5));
 
         assertThat(post("{not json").statusCode()).isEqualTo(400);
-        HttpResponse<String> unknown = post("{\"source\":\"a\",\"type\":\"t\",\"bogus\":1}");
+        HttpResponse<String> unknown = post("{\"event_id\":\"" + id() + "\",\"source\":\"a\",\"type\":\"t\",\"bogus\":1}");
         assertThat(unknown.statusCode()).isEqualTo(400);
         assertThat(unknown.body()).contains("malformed_json");
         assertThat(producer.history()).isEmpty();
@@ -153,7 +163,7 @@ class IngestHandlerTest {
         assertThat(get.statusCode()).isEqualTo(405);
         assertThat(get.headers().firstValue("Allow")).contains("POST");
 
-        HttpResponse<String> big = post("{\"source\":\"a\",\"type\":\"t\",\"attributes\":{\"k\":\"" + "x".repeat(200) + "\"}}");
+        HttpResponse<String> big = post("{\"event_id\":\"" + id() + "\",\"source\":\"a\",\"type\":\"t\",\"attributes\":{\"k\":\"" + "x".repeat(200) + "\"}}");
         assertThat(big.statusCode()).isEqualTo(413);
     }
 
@@ -161,10 +171,10 @@ class IngestHandlerTest {
     void appliesBackPressureWhenInFlightLimitIsReached() throws Exception {
         start(false, 1, 1 << 20, Duration.ofSeconds(10));
 
-        CompletableFuture<HttpResponse<String>> first = postAsync("{\"source\":\"a\",\"type\":\"t\"}");
+        CompletableFuture<HttpResponse<String>> first = postAsync(ev("a"));
         awaitSends(1);
 
-        HttpResponse<String> second = post("{\"source\":\"b\",\"type\":\"t\"}");
+        HttpResponse<String> second = post(ev("b"));
         assertThat(second.statusCode()).isEqualTo(429);
         assertThat(second.headers().firstValue("Retry-After")).contains("1");
         assertThat(producer.history()).hasSize(1);
@@ -173,7 +183,7 @@ class IngestHandlerTest {
         assertThat(first.get(5, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
         assertThat(permits.availablePermits()).isEqualTo(1);
 
-        CompletableFuture<HttpResponse<String>> third = postAsync("{\"source\":\"c\",\"type\":\"t\"}");
+        CompletableFuture<HttpResponse<String>> third = postAsync(ev("c"));
         awaitSends(2);
         producer.completeNext();
         assertThat(third.get(5, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
@@ -183,7 +193,7 @@ class IngestHandlerTest {
     void returns503AndReleasesPermitsWhenKafkaFails() throws Exception {
         start(false, 10, 1 << 20, Duration.ofSeconds(10));
 
-        CompletableFuture<HttpResponse<String>> pending = postAsync("{\"source\":\"a\",\"type\":\"t\"}");
+        CompletableFuture<HttpResponse<String>> pending = postAsync(ev("a"));
         awaitSends(1);
         producer.errorNext(new RuntimeException("broker unavailable"));
 
@@ -195,12 +205,13 @@ class IngestHandlerTest {
     }
 
     @Test
-    void partialFailureReturnsEveryIdSoARetryReusesThem() throws Exception {
+    void partialFailureReturnsTheClientIdsSoARetryReusesThem() throws Exception {
         start(false, 10, 1 << 20, Duration.ofSeconds(10));
+        String a = id();
+        String b = id();
 
-        // No event_id: the server generates both ids.
-        CompletableFuture<HttpResponse<String>> pending =
-                postAsync("[{\"source\":\"a\",\"type\":\"t\"},{\"source\":\"b\",\"type\":\"t\"}]");
+        CompletableFuture<HttpResponse<String>> pending = postAsync("[{\"event_id\":\"" + a + "\",\"source\":\"a\","
+                + "\"type\":\"t\"},{\"event_id\":\"" + b + "\",\"source\":\"b\",\"type\":\"t\"}]");
         awaitSends(2);
         producer.completeNext();
         producer.errorNext(new RuntimeException("broker unavailable"));
@@ -209,20 +220,29 @@ class IngestHandlerTest {
         assertThat(response.statusCode()).isEqualTo(503);
         JsonNode body = JSON.readTree(response.body());
         assertThat(body.get("failed").asInt()).isEqualTo(1);
-        assertThat(body.get("event_ids")).hasSize(2);
-        String first = body.get("event_ids").get(0).asText();
-        String second = body.get("event_ids").get(1).asText();
-        assertThat(first).isNotBlank();
-        assertThat(first).isNotEqualTo(second);
+        assertThat(body.get("event_ids").get(0).asText()).isEqualTo(a);
+        assertThat(body.get("event_ids").get(1).asText()).isEqualTo(b);
         assertThat(body.get("failed_event_ids")).hasSize(1);
-        assertThat(body.get("failed_event_ids").get(0).asText()).isEqualTo(second);
+        assertThat(body.get("failed_event_ids").get(0).asText()).isEqualTo(b);
+    }
+
+    @Test
+    void rejectsEventsWithoutAnIdAndPublishesNothing() throws Exception {
+        start(true, 10, 1 << 20, Duration.ofSeconds(5));
+
+        // A server-made id would be lost with a dropped reply, and the retry would be stored twice.
+        HttpResponse<String> response = post("[" + ev("a") + ",{\"source\":\"b\",\"type\":\"t\"}]");
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(java.util.Objects.requireNonNull(response.body())).contains("events[1]: event_id is required");
+        assertThat(producer.history()).isEmpty();
     }
 
     @Test
     void nullEventsAreRejectedAs400() throws Exception {
         start(true, 10, 1 << 20, Duration.ofSeconds(5));
 
-        for (String body : new String[] {"null", "[null]", "[{\"source\":\"a\",\"type\":\"t\"}, null]"}) {
+        for (String body : new String[] {"null", "[null]", "[" + ev("a") + ", null]"}) {
             HttpResponse<String> response = post(body);
             // JUnit's assertEquals for the message: AssertJ's chained .as(...) trips the IDE's null analysis.
             assertEquals(400, response.statusCode(), body);
@@ -235,7 +255,7 @@ class IngestHandlerTest {
     void returns503WhenBrokerDoesNotAcknowledgeInTime() throws Exception {
         start(false, 10, 1 << 20, Duration.ofMillis(200));
 
-        HttpResponse<String> response = post("{\"source\":\"a\",\"type\":\"t\"}");
+        HttpResponse<String> response = post(ev("a"));
 
         assertThat(response.statusCode()).isEqualTo(503);
         assertThat(response.body()).contains("timed out");

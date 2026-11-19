@@ -1,0 +1,21 @@
+# The API-to-Kafka handoff: an ingestion pod is killed without warning every 30 s, so requests die mid-flight
+# (some before Kafka has the events, some after). The harness also discards the reply of every 20th batch
+# (eo_test.py stream --drop-reply-every). The client retries with the same ids; every event must land exactly once.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: ingestion-handoff
+  namespace: apps
+spec:
+  schedule: "@every 30s"
+  type: PodChaos
+  historyLimit: 2
+  concurrencyPolicy: Forbid
+  podChaos:
+    action: pod-kill
+    mode: one
+    gracePeriod: 0
+    selector:
+      namespaces: [apps]
+      labelSelectors:
+        app: ingestion-service

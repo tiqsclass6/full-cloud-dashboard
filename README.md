@@ -45,7 +45,7 @@ Built a Terraform-provisioned, Kubernetes-native streaming data lakehouse that r
 
 ### **Real-world example**
 
-A company may want to stream app or device events into a data lake that analysts query with SQL, without losing or double-counting records when servers fail. This project builds that pipeline and proves it: 24,000 events sent with 3,400 duplicates, a killed worker and a restore from a savepoint still produced exactly 24,000 rows, and chaos tests with 259,650 events lost and duplicated none. When an alert fires, the assistant gathers metrics, logs and runbooks and proposes one fix from a fixed list, and nothing runs until a person approves it. Its guardrails are tested; live diagnoses wait on Bedrock model access for the AWS account.
+A company may want to stream app or device events into a data lake that analysts query with SQL, without losing or double-counting records when servers fail. This project builds that pipeline and proves it: 24,000 events sent with 3,400 duplicates, a killed worker and a restore from a savepoint still produced exactly 24,000 rows, and chaos tests with 323,400 events lost and duplicated none, including ingestion pods killed mid-request and replies thrown away so the client had to retry. When an alert fires, the assistant gathers metrics, logs and runbooks and proposes one fix from a fixed list, and nothing runs until a person approves it. Its guardrails are tested; live diagnoses wait on Bedrock model access for the AWS account.
 
 ![Platform architecture](docs/diagrams/architecture.png)
 
@@ -55,17 +55,17 @@ A company may want to stream app or device events into a data lake that analysts
 
 Numbers from recorded runs. Each was run once unless stated; the linked pages say what each test does and does not prove.
 
-| **Area**                     | **Result**                                                                                                                                 | **Details**                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| **Exactly once**             | 24,000 events with 3,400 duplicate sends and re-sends, a TaskManager kill and a savepoint restore: **24,000 rows, 24,000 distinct**        | [**flink-iceberg.md**](docs/flink-iceberg.md)    |
-| **Chaos**                    | Broker isolation, TaskManager kill, 400 ms Kafka latency, a paused node (zone outage): **259,650 events, 0 lost, 0 duplicated**            | [**chaos/README.md**](docs/chaos/README.md)      |
-| **Iceberg maintenance**      | 70 small files to 1, 56 snapshots to 1, median full scan 1.68 s to 0.48 s; compaction under 5,000 events/s with **3,501,500 = 3,501,500**  | [**spark-iceberg.md**](docs/spark-iceberg.md)    |
-| **JVM performance**          | 30,000 events/s, 0 errors, p99 23 ms; an Avro encoder change cut allocation 19%; G1 vs generational ZGC compared with JFR                  | [**perf/README.md**](docs/performance/README.md) |
-| **AWS end to end**           | 5,000 events through ingestion, Kafka, Flink and Iceberg on S3/Glue: **Athena counted 5,000 rows, 5,000 distinct**                         | [**aws.md**](docs/aws.md)                        |
-| **Security on EKS**          | Kafka mTLS and ACLs 10/10, network policies 9/9, admission 15/15; signed image admitted, unsigned refused                                  | [**SECURITY.md**](SECURITY.md)                   |
-| **Observability**            | 27 alerts with runbooks and promtool unit tests; 57 of 57 dashboard queries return data; an alert fired, its runbook fixed it, it resolved | [**observability.md**](docs/observability.md)    |
-| **Agentic ops (guardrails)** | 37 of 37 guardrail checks; 13 MCP tools reached through Amazon Bedrock AgentCore Gateway inside the VPC (1.38 s per call from the Runtime) | [**ai-ops.md**](docs/ai-ops.md)                  |
-| **Teardown**                 | `aws-down` releases every volume and load balancer before `terraform destroy`, then checks for leftovers                                   | [**aws.md**](docs/aws.md)                        |
+| **Area**                     | **Result**                                                                                                                                                 | **Details**                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **Exactly once**             | 24,000 events with 3,400 duplicate sends and re-sends, a TaskManager kill and a savepoint restore: **24,000 rows, 24,000 distinct**                        | [**flink-iceberg.md**](docs/flink-iceberg.md)    |
+| **Chaos**                    | Broker isolation, TaskManager kill, 400 ms Kafka latency, a paused node, ingestion pods killed with replies lost: **323,400 events, 0 lost, 0 duplicated** | [**chaos/README.md**](docs/chaos/README.md)      |
+| **Iceberg maintenance**      | 70 small files to 1, 56 snapshots to 1, median full scan 1.68 s to 0.48 s; compaction under 5,000 events/s with **3,501,500 = 3,501,500**                  | [**spark-iceberg.md**](docs/spark-iceberg.md)    |
+| **JVM performance**          | 30,000 events/s, 0 errors, p99 23 ms; an Avro encoder change cut allocation 19%; G1 vs generational ZGC compared with JFR                                  | [**perf/README.md**](docs/performance/README.md) |
+| **AWS end to end**           | 5,000 events through ingestion, Kafka, Flink and Iceberg on S3/Glue: **Athena counted 5,000 rows, 5,000 distinct**                                         | [**aws.md**](docs/aws.md)                        |
+| **Security on EKS**          | Kafka mTLS and ACLs 10/10, network policies 9/9, admission 15/15; signed image admitted, unsigned refused                                                  | [**SECURITY.md**](SECURITY.md)                   |
+| **Observability**            | 27 alerts with runbooks and promtool unit tests; 57 of 57 dashboard queries return data; an alert fired, its runbook fixed it, it resolved                 | [**observability.md**](docs/observability.md)    |
+| **Agentic ops (guardrails)** | 37 of 37 guardrail checks; 13 MCP tools reached through Amazon Bedrock AgentCore Gateway inside the VPC (1.38 s per call from the Runtime)                 | [**ai-ops.md**](docs/ai-ops.md)                  |
+| **Teardown**                 | `aws-down` releases every volume and load balancer before `terraform destroy`, then checks for leftovers                                                   | [**aws.md**](docs/aws.md)                        |
 
 ### **How it works**
 

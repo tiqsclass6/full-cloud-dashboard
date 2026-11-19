@@ -6,7 +6,6 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.HashMap;
-import java.util.UUID;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
@@ -58,9 +57,5 @@ public final class EventSchema {
         }
         record.put("attributes", request.attributes() != null ? request.attributes() : new HashMap<String, String>());
         return record;
-    }
-
-    public static String newEventId() {
-        return UUID.randomUUID().toString();
     }
 }

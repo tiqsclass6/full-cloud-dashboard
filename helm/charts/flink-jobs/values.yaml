@@ -15,6 +15,7 @@ taskSlots: 2
 # savepoint: the operator stops the job with a savepoint on every spec change and restores from it.
 upgradeMode: savepoint
 restartFailedJob: true
+# The retry window: a copy of an event_id arriving later than this is stored again (ingestion README, Retry contract).
 dedupeTtlMinutes: 60
 
 checkpointing:

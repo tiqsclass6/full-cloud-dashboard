@@ -96,7 +96,8 @@ class EndToEndIT {
         StringBuilder body = new StringBuilder("[");
         for (int i = 0; i < 50; i++) {
             body.append(i == 0 ? "" : ",")
-                    .append("{\"source\":\"src-").append(i % 5).append("\",\"type\":\"cpu.usage\",\"value\":")
+                    .append("{\"event_id\":\"").append(java.util.UUID.randomUUID())
+                    .append("\",\"source\":\"src-").append(i % 5).append("\",\"type\":\"cpu.usage\",\"value\":")
                     .append(i).append(".5}");
         }
         body.append("]");

@@ -35,7 +35,10 @@ public final class EventValidator {
             checkName("region", event.region(), MAX_TYPE_LENGTH, errors);
         }
 
-        if (event.eventId() != null) {
+        // Required: a retry can only be recognised as a copy if the source chose the id before the first send.
+        if (event.eventId() == null || event.eventId().isBlank()) {
+            errors.add("event_id is required");
+        } else {
             try {
                 UUID.fromString(event.eventId());
             } catch (IllegalArgumentException e) {

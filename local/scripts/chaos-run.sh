@@ -51,6 +51,7 @@ cleanup() {
   [ -n "${PAUSED_NODE}" ] && docker unpause "${PAUSED_NODE}" >/dev/null 2>&1
   [ -f "${REPO_ROOT}/chaos/experiments/${EXP}.yaml" ] && \
     kc delete -f "${REPO_ROOT}/chaos/experiments/${EXP}.yaml" --ignore-not-found >/dev/null 2>&1
+  kc -n apps label pods -l lakehouse.io/chaos-target lakehouse.io/chaos-target- >/dev/null 2>&1
   touch "${WORK}/stop"
   for f in "${WORK}"/fwd-*.pid; do [ -f "${f}" ] && kill "$(cat "${f}")" 2>/dev/null; done
   for pid in "${WATCHDOGS[@]}"; do kill "${pid}" 2>/dev/null; done
@@ -63,6 +64,13 @@ prom() { curl -s --max-time 10 -G --data-urlencode "query=$1" http://localhost:9
 # Watchdog is kube-prometheus-stack's always-firing heartbeat, not a signal.
 firing() { curl -s --max-time 10 http://localhost:9090/api/v1/alerts | jq -r '.data.alerts[]? | select(.state=="firing" and .labels.alertname != "Watchdog") | .labels.alertname' 2>/dev/null | sort -u; }
 job_state() { kc -n apps get flinkdeployment events-to-iceberg -o jsonpath='{.status.jobStatus.state}' 2>/dev/null; }
+# TaskManagers that run the job's tasks (a spare runs none).
+busy_tms() { curl -s --max-time 10 -G --data-urlencode 'query=count by (pod) (flink_taskmanager_job_task_numRecordsIn{job_name="events_to_iceberg"})' \
+  http://localhost:9090/api/v1/query | jq -r '.data.result[].metric.pod' 2>/dev/null; }
+flink_nodes() {  # flink_nodes <jobmanager|taskmanager>: nodes of its running pods
+  kc -n apps get pods -l "app=events-to-iceberg,component=$1" --field-selector=status.phase=Running \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>/dev/null
+}
 # A partition the group has never consumed reports lag -1; count only real lag.
 lag() { prom 'sum(kafka_consumergroup_lag{consumergroup="flink-events-to-iceberg"} >= 0)'; }
 
@@ -76,21 +84,25 @@ if [ "${EXP}" = zone-outage ]; then
   leader_pod="$(curl -s --max-time 10 -G --data-urlencode 'query=flink_jobmanager_job_uptime{job_name="events_to_iceberg"} > 0' \
     http://localhost:9090/api/v1/query | jq -r '.data.result[0].metric.pod // empty' 2>/dev/null)"
   leader_node="$([ -n "${leader_pod}" ] && kc -n apps get pod "${leader_pod}" -o jsonpath='{.spec.nodeName}' 2>/dev/null)"
+  busy_nodes="$(for p in $(busy_tms); do kc -n apps get pod "${p}" -o jsonpath='{.spec.nodeName}{"\n"}' 2>/dev/null; done | sort -u)"
   # A broker's worker that hosts neither Prometheus nor the agent's tools, so the run can still be observed.
-  # Prefer the leading JobManager's node: the hardest case, since the job then has to fail over.
+  # Prefer the node whose loss hurts Flink most: the busy TaskManager's (2) and the leading JobManager's (1).
   observers="$(kc -n monitoring get pod prometheus-kps-prometheus-0 -o jsonpath='{.spec.nodeName}') $(kc -n ai-ops get pods \
     -l 'app in (mcp-platform-tools,ops-agent)' -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{end}' 2>/dev/null)"
+  best=-1
   for n in $(kc -n kafka get pods -l strimzi.io/broker-role=true -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}'); do
     [[ " ${observers} " == *" ${n} "* ]] && continue
-    [ -z "${TARGET_NODE}" ] && TARGET_NODE="${n}"
-    [ "${n}" = "${leader_node}" ] && TARGET_NODE="${n}" && break
+    score=0
+    grep -qx "${n}" <<< "${busy_nodes}" && score=$((score + 2))
+    [ "${n}" = "${leader_node}" ] && score=$((score + 1))
+    [ "${score}" -gt "${best}" ] && best="${score}" && TARGET_NODE="${n}"
   done
   [ -n "${TARGET_NODE}" ] || { fail "every broker node hosts an observer (Prometheus or the ops agent tools)"; exit 1; }
   # A JobManager on another node can take over; with none, losing the node stops the job and FlinkJobNotRunning
   # is expected, not forbidden.
-  jm_nodes="$(kc -n apps get pods -l app=events-to-iceberg,component=jobmanager --field-selector=status.phase=Running \
-    -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>/dev/null)"
+  jm_nodes="$(flink_nodes jobmanager)"
   standby_elsewhere="$(grep -vx "${TARGET_NODE}" <<< "${jm_nodes}" | head -1 || true)"
+  spare_elsewhere="$(flink_nodes taskmanager | grep -vx "${TARGET_NODE}" | head -1 || true)"
   if [ "${leader_node}" = "${TARGET_NODE}" ] && [ -n "${standby_elsewhere}" ]; then
     # The standby must keep the pipeline committing, not just keep the job "running".
     [[ " ${FORBID} " == *" FlinkCheckpointsStalled "* ]] || FORBID="${FORBID} FlinkCheckpointsStalled"
@@ -101,6 +113,17 @@ if [ "${EXP}" = zone-outage ]; then
     echo "  note: ${TARGET_NODE} runs the only Flink JobManager; FlinkJobNotRunning is expected"
   else
     echo "  note: the leading JobManager (${leader_pod:-unknown}) is not on ${TARGET_NODE}"
+  fi
+  if grep -qx "${TARGET_NODE}" <<< "${busy_nodes}"; then
+    NOTE="${NOTE:+${NOTE}; }the paused node ran the busy TaskManager"
+    if [ -n "${spare_elsewhere}" ]; then
+      NOTE="${NOTE} (a spare ran on ${spare_elsewhere})"
+      # With a JobManager and a spare TaskManager left, the job must keep committing.
+      [ -n "${standby_elsewhere}" ] && [[ " ${FORBID} " != *" FlinkCheckpointsStalled "* ]] && FORBID="${FORBID} FlinkCheckpointsStalled"
+    fi
+    echo "  note: ${TARGET_NODE} runs the busy TaskManager; another TaskManager: ${spare_elsewhere:-none}"
+  else
+    echo "  note: the busy TaskManager is not on ${TARGET_NODE}"
   fi
 fi
 if [ "${EXP}" = ingestion-handoff ]; then
@@ -114,6 +137,12 @@ else
 fi
 sleep 6
 [ "$(job_state)" = RUNNING ] && ok "Flink job RUNNING" || { fail "Flink job not RUNNING"; exit 1; }
+if [ "${EXP}" = flink-taskmanager-kill ]; then
+  # With a spare TaskManager, "mode: one" could pick the idle one: label a busy one as the experiment's target.
+  TM_TARGET="$(busy_tms | head -1)"
+  [ -n "${TM_TARGET}" ] && kc -n apps label pod "${TM_TARGET}" lakehouse.io/chaos-target=true --overwrite >/dev/null \
+    && echo "  note: target TaskManager ${TM_TARGET} (runs the job's tasks)" || { fail "no TaskManager reports running tasks"; exit 1; }
+fi
 already="$(firing | grep -vxE 'Watchdog|PrometheusMissingRuleEvaluations' | tr '\n' ' ' || true)"
 [ -z "${already}" ] && ok "no alerts firing" || echo "  note: already firing before the experiment: ${already}"
 
@@ -186,6 +215,16 @@ for _ in $(seq 1 30); do
   [ -z "${still}" ] && break; sleep 20
 done
 [ -z "${still}" ] && ok "experiment alerts resolved" || fail "still firing after recovery: ${still}"
+# Longest stretch without a completed checkpoint (nothing reaches Iceberg meanwhile), from a minute before the fault.
+# Resolution is the 15 s scrape interval. A new leader reports -1 until its first checkpoint.
+CKPT_GAP="$(curl -s --max-time 20 -G http://localhost:9090/api/v1/query_range \
+  --data-urlencode 'query=max(flink_jobmanager_job_lastCompletedCheckpointId{job_name="events_to_iceberg"})' \
+  --data-urlencode "start=$((FAULT_START - 60))" --data-urlencode "end=$(date +%s)" --data-urlencode step=5 \
+  | jq -r '[.data.result[0].values[] | [.[0], (.[1] | tonumber)]] as $v
+      | reduce $v[] as $p ({best: -1, t: null, gap: 0};
+          if $p[1] > .best then {best: $p[1], t: $p[0], gap: (if .t then ([.gap, $p[0] - .t] | max) else 0 end)} else . end)
+      | [.gap, ($v[-1][0] - .t)] | max | floor' 2>/dev/null || true)"
+echo "  longest gap between completed checkpoints: ${CKPT_GAP:-unknown} s"
 
 log "Data: every event exactly once"
 SENT="$(jq -r '.sent // 0' < "${WORK}/stream.json" 2>/dev/null || echo 0)"; RETRIED="$(jq -r '.retried // 0' < "${WORK}/stream.json" 2>/dev/null || echo 0)"
@@ -218,12 +257,12 @@ alerts_json="$(for a in "${!SEEN[@]}"; do echo "{\"alert\":\"${a}\",\"seconds_af
 jq -n --arg exp "${EXP}" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson fault "$((FAULT_END - FAULT_START))" \
   --argjson sent "${SENT:-0}" --argjson retried "${RETRIED:-0}" --argjson recovered "${RECOVERED:-null}" \
   --argjson dropped "${DROPPED:-0}" --argjson dups "${DUPS_DROPPED:-null}" --argjson replaced "${REPLACED:-null}" \
-  --argjson maxlag "${MAX_LAG}" --argjson maxckpt "${MAX_CKPT}" --argjson alerts "${alerts_json:-[]}" \
+  --argjson maxlag "${MAX_LAG}" --argjson maxckpt "${MAX_CKPT}" --argjson ckgap "${CKPT_GAP:-null}" --argjson alerts "${alerts_json:-[]}" \
   --argjson verify "$(echo "${VERIFY}" | jq -c . 2>/dev/null || echo null)" --arg expect "${EXPECT}" --arg forbid "${FORBID}" \
   --arg note "${NOTE}" --argjson passed "$([ "${FAILED}" -eq 0 ] && echo true || echo false)" \
   '{experiment: $exp, run_at: $at, fault_seconds: $fault, events_sent: $sent, retried_batches: $retried,
     replies_discarded: $dropped, ingestion_pods_replaced: $replaced, duplicates_dropped_by_flink: $dups,
-    recovery_seconds: $recovered, max_consumer_lag: $maxlag, max_checkpoint_ms: $maxckpt, alerts_fired: $alerts,
+    recovery_seconds: $recovered, max_consumer_lag: $maxlag, max_checkpoint_ms: $maxckpt, max_checkpoint_gap_seconds: $ckgap, alerts_fired: $alerts,
     expected_alerts: ($expect | split(" ") | map(select(. != ""))), forbidden_alerts: ($forbid | split(" ")),
     iceberg: $verify, note: $note, passed: $passed}' > "${RESULTS}/${EXP}.json"
 ok "wrote docs/chaos/results/${EXP}.json"

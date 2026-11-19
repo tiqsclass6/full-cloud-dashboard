@@ -12,3 +12,5 @@ spec:
     labelSelectors:
       app: events-to-iceberg
       component: taskmanager
+      # Set by chaos-run.sh on a TaskManager that runs tasks, so the kill never lands on an idle spare.
+      lakehouse.io/chaos-target: "true"

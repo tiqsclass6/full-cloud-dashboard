@@ -36,7 +36,7 @@ WORKFLOWS = [
         "stats": [
             ("24,000 = 24,000", "rows = distinct ids after a TaskManager kill and a savepoint restore", "data"),
             ("3,400", "duplicate sends and post-restart re-sends dropped", "process"),
-            ("0 / 322,400", "events lost or duplicated across five chaos experiments", "secure"),
+            ("0 / 322,600", "events lost or duplicated across five chaos experiments", "secure"),
             ("5,000 = 5,000", "events counted once by Athena on EKS", "aws"),
         ],
         "source": "docs/flink-iceberg.md, docs/chaos/README.md, docs/aws.md",

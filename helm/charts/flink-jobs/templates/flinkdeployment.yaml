@@ -40,6 +40,8 @@ spec:
     restart-strategy.exponential-delay.max-backoff: 60s
     # Give up on a TaskManager that never registers (e.g. scheduled onto a node that just failed) and request another.
     resourcemanager.taskmanager-registration.timeout: {{ .Values.taskManager.registrationTimeout }}
+    # Spare TaskManagers with free slots, so a failed one is replaced without waiting for a pod to start.
+    slotmanager.redundant-taskmanager-num: {{ .Values.taskManager.spares | quote }}
     # Restart a job that reached FAILED (e.g. the catalog was down at start-up).
     kubernetes.operator.job.restart.failed: {{ .Values.restartFailedJob | quote }}
     {{- if .Values.metrics.enabled }}
@@ -86,6 +88,18 @@ spec:
     resource:
       memory: {{ .Values.taskManager.memory }}
       cpu: {{ .Values.taskManager.cpu }}
+    {{- if gt (int .Values.taskManager.spares) 0 }}
+    podTemplate:
+      spec:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: {{ .Values.taskManager.zoneSpread }}
+            labelSelector:
+              matchLabels:
+                app: {{ .Values.name }}
+                component: taskmanager
+    {{- end }}
   podTemplate:
     spec:
       # Pod Security "restricted" (JobManager and TaskManagers). The image's flink user is 9999.

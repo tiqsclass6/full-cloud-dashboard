@@ -53,6 +53,12 @@ taskManager:
   # 5 min). After a node failure the first replacement can land on the dead node, which Kubernetes has not yet
   # marked NotReady; with 5 minutes the job then idles that long (zone outage, docs/chaos/README.md).
   registrationTimeout: 90s
+  # Idle TaskManagers kept running (slotmanager.redundant-taskmanager-num): when a TaskManager or its node fails,
+  # the job restarts on their slots instead of waiting for a new pod. Each costs a full TaskManager.
+  spares: 1
+  # Prefer different zones for the TaskManagers, so the spare survives the zone it would replace. Soft, so that a
+  # replacement is never left Pending for want of a zone.
+  zoneSpread: ScheduleAnyway
 
 # Failover and FAILED-job recovery resume from the latest checkpoint; required by restartFailedJob.
 highAvailability:

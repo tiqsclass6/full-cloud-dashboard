@@ -60,6 +60,13 @@ taskManager:
   # replacement is never left Pending for want of a zone.
   zoneSpread: ScheduleAnyway
 
+# How fast Flink declares a TaskManager or JobManager dead when it stops answering (defaults 10s / 50s). A failed
+# node closes no connections, so this sets how long the job waits before it moves to the spare TaskManager.
+# Too low and a long GC pause or a stalled VM triggers a needless restart (from a checkpoint, so data stays correct).
+heartbeat:
+  interval: 5s
+  timeout: 20s
+
 # Failover and FAILED-job recovery resume from the latest checkpoint; required by restartFailedJob.
 highAvailability:
   enabled: true

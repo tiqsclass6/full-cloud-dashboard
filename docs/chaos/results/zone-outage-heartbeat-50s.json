@@ -1,0 +1,51 @@
+{
+  "experiment": "zone-outage",
+  "run_at": "2026-11-19T06:04:57Z",
+  "fault_seconds": 368,
+  "events_sent": 65300,
+  "retried_batches": 0,
+  "replies_discarded": 0,
+  "ingestion_pods_replaced": 0,
+  "duplicates_dropped_by_flink": 0,
+  "recovery_seconds": 207,
+  "max_consumer_lag": 7950,
+  "max_checkpoint_ms": 1724,
+  "max_checkpoint_gap_seconds": 95,
+  "alerts_fired": [
+    {
+      "alert": "OpsAgentInvestigationsFailing",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "OpsAgentAlertsDropped",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "KafkaBrokerDown",
+      "seconds_after_fault_start": 144
+    },
+    {
+      "alert": "KafkaUnderReplicatedPartitions",
+      "seconds_after_fault_start": 369
+    }
+  ],
+  "expected_alerts": [
+    "KafkaBrokerDown"
+  ],
+  "forbidden_alerts": [
+    "FlinkJobNotRunning",
+    "FlinkCheckpointsStalled"
+  ],
+  "iceberg": {
+    "expected": 65300,
+    "found": 65300,
+    "missing": 0,
+    "duplicates": 0
+  },
+  "note": "the paused node ran the busy TaskManager (a spare ran on lakehouse-worker2)",
+  "passed": true
+}

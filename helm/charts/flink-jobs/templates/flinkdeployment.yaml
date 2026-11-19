@@ -42,6 +42,9 @@ spec:
     resourcemanager.taskmanager-registration.timeout: {{ .Values.taskManager.registrationTimeout }}
     # Spare TaskManagers with free slots, so a failed one is replaced without waiting for a pod to start.
     slotmanager.redundant-taskmanager-num: {{ .Values.taskManager.spares | quote }}
+    # Detection time for a TaskManager or JobManager that stops answering (a failed node closes no connections).
+    heartbeat.interval: {{ .Values.heartbeat.interval }}
+    heartbeat.timeout: {{ .Values.heartbeat.timeout }}
     # Restart a job that reached FAILED (e.g. the catalog was down at start-up).
     kubernetes.operator.job.restart.failed: {{ .Values.restartFailedJob | quote }}
     {{- if .Values.metrics.enabled }}

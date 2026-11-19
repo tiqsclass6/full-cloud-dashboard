@@ -1,44 +1,68 @@
 {
   "experiment": "zone-outage",
-  "run_at": "2026-11-19T05:30:30Z",
-  "fault_seconds": 374,
-  "events_sent": 63400,
+  "run_at": "2026-11-19T07:35:59Z",
+  "fault_seconds": 373,
+  "events_sent": 64100,
   "retried_batches": 1,
   "replies_discarded": 0,
   "ingestion_pods_replaced": 0,
-  "duplicates_dropped_by_flink": 0,
-  "recovery_seconds": 211,
-  "max_consumer_lag": 5346,
-  "max_checkpoint_ms": 9154,
-  "max_checkpoint_gap_seconds": 100,
+  "duplicates_dropped_by_flink": 50,
+  "recovery_seconds": 209,
+  "max_consumer_lag": 3300,
+  "max_checkpoint_ms": 8497,
+  "max_checkpoint_gap_seconds": 55,
   "alerts_fired": [
     {
+      "alert": "KubeStatefulSetReplicasMismatch",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "TargetDown",
+      "seconds_after_fault_start": 1
+    },
+    {
       "alert": "OpsAgentInvestigationsFailing",
-      "seconds_after_fault_start": 0
-    },
-    {
-      "alert": "OpsAgentAlertsDropped",
-      "seconds_after_fault_start": 0
-    },
-    {
-      "alert": "FlinkJobRestarting",
-      "seconds_after_fault_start": 0
-    },
-    {
-      "alert": "FlinkCheckpointFailures",
-      "seconds_after_fault_start": 0
-    },
-    {
-      "alert": "KafkaBrokerDown",
-      "seconds_after_fault_start": 173
+      "seconds_after_fault_start": 1
     },
     {
       "alert": "IcebergCompactionOverdue",
-      "seconds_after_fault_start": 208
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "NodeMemoryMajorPagesFaults",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "OpsAgentAlertsDropped",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "NodeMemoryHighUtilization",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "IcebergSmallFilesHigh",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "KubePodCrashLooping",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "KubePodNotReady",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 83
+    },
+    {
+      "alert": "KafkaBrokerDown",
+      "seconds_after_fault_start": 183
     },
     {
       "alert": "KafkaUnderReplicatedPartitions",
-      "seconds_after_fault_start": 356
+      "seconds_after_fault_start": 354
     }
   ],
   "expected_alerts": [
@@ -49,11 +73,11 @@
     "FlinkCheckpointsStalled"
   ],
   "iceberg": {
-    "expected": 63400,
-    "found": 63400,
+    "expected": 64100,
+    "found": 64100,
     "missing": 0,
     "duplicates": 0
   },
-  "note": "the paused node ran the leading Flink JobManager; the standby on lakehouse-worker2 had to take over; the paused node ran the busy TaskManager (a spare ran on lakehouse-worker2)",
+  "note": "the paused node ran the busy TaskManager (a spare ran on lakehouse-worker)",
   "passed": true
 }

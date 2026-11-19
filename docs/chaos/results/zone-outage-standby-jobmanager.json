@@ -1,0 +1,54 @@
+{
+  "experiment": "zone-outage",
+  "run_at": "2026-11-19T04:35:11Z",
+  "fault_seconds": 373,
+  "events_sent": 63150,
+  "retried_batches": 2,
+  "replies_discarded": 0,
+  "ingestion_pods_replaced": 0,
+  "duplicates_dropped_by_flink": 100,
+  "recovery_seconds": 189,
+  "max_consumer_lag": 13900,
+  "max_checkpoint_ms": 2563,
+  "alerts_fired": [
+    {
+      "alert": "OpsAgentInvestigationsFailing",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "IcebergCompactionOverdue",
+      "seconds_after_fault_start": 178
+    },
+    {
+      "alert": "KafkaBrokerDown",
+      "seconds_after_fault_start": 178
+    },
+    {
+      "alert": "OpsAgentAlertsDropped",
+      "seconds_after_fault_start": 259
+    },
+    {
+      "alert": "KafkaUnderReplicatedPartitions",
+      "seconds_after_fault_start": 356
+    }
+  ],
+  "expected_alerts": [
+    "KafkaBrokerDown"
+  ],
+  "forbidden_alerts": [
+    "FlinkJobNotRunning",
+    "FlinkCheckpointsStalled"
+  ],
+  "iceberg": {
+    "expected": 63150,
+    "found": 63150,
+    "missing": 0,
+    "duplicates": 0
+  },
+  "note": "the paused node ran the leading Flink JobManager; the standby on lakehouse-worker2 had to take over",
+  "passed": true
+}

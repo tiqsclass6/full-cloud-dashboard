@@ -1,35 +1,40 @@
 {
   "experiment": "zone-outage",
-  "run_at": "2026-11-19T04:35:11Z",
-  "fault_seconds": 373,
-  "events_sent": 63150,
-  "retried_batches": 2,
+  "run_at": "2026-11-19T05:30:30Z",
+  "fault_seconds": 374,
+  "events_sent": 63400,
+  "retried_batches": 1,
   "replies_discarded": 0,
   "ingestion_pods_replaced": 0,
-  "duplicates_dropped_by_flink": 100,
-  "recovery_seconds": 189,
-  "max_consumer_lag": 13900,
-  "max_checkpoint_ms": 2563,
+  "duplicates_dropped_by_flink": 0,
+  "recovery_seconds": 211,
+  "max_consumer_lag": 5346,
+  "max_checkpoint_ms": 9154,
+  "max_checkpoint_gap_seconds": 100,
   "alerts_fired": [
     {
       "alert": "OpsAgentInvestigationsFailing",
-      "seconds_after_fault_start": 1
-    },
-    {
-      "alert": "FlinkCheckpointFailures",
-      "seconds_after_fault_start": 1
-    },
-    {
-      "alert": "IcebergCompactionOverdue",
-      "seconds_after_fault_start": 178
-    },
-    {
-      "alert": "KafkaBrokerDown",
-      "seconds_after_fault_start": 178
+      "seconds_after_fault_start": 0
     },
     {
       "alert": "OpsAgentAlertsDropped",
-      "seconds_after_fault_start": 259
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "FlinkJobRestarting",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "KafkaBrokerDown",
+      "seconds_after_fault_start": 173
+    },
+    {
+      "alert": "IcebergCompactionOverdue",
+      "seconds_after_fault_start": 208
     },
     {
       "alert": "KafkaUnderReplicatedPartitions",
@@ -44,11 +49,11 @@
     "FlinkCheckpointsStalled"
   ],
   "iceberg": {
-    "expected": 63150,
-    "found": 63150,
+    "expected": 63400,
+    "found": 63400,
     "missing": 0,
     "duplicates": 0
   },
-  "note": "the paused node ran the leading Flink JobManager; the standby on lakehouse-worker2 had to take over",
+  "note": "the paused node ran the leading Flink JobManager; the standby on lakehouse-worker2 had to take over; the paused node ran the busy TaskManager (a spare ran on lakehouse-worker2)",
   "passed": true
 }

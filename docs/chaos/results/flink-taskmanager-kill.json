@@ -1,24 +1,32 @@
 {
   "experiment": "flink-taskmanager-kill",
-  "run_at": "2026-11-01T08:15:41Z",
-  "fault_seconds": 366,
-  "events_sent": 66000,
+  "run_at": "2026-11-19T05:16:03Z",
+  "fault_seconds": 370,
+  "events_sent": 65900,
   "retried_batches": 0,
-  "recovery_seconds": 217,
-  "max_consumer_lag": 2350,
-  "max_checkpoint_ms": 1570,
+  "replies_discarded": 0,
+  "ingestion_pods_replaced": 0,
+  "duplicates_dropped_by_flink": 0,
+  "recovery_seconds": 195,
+  "max_consumer_lag": 2750,
+  "max_checkpoint_ms": 2349,
+  "max_checkpoint_gap_seconds": 30,
   "alerts_fired": [
     {
       "alert": "OpsAgentInvestigationsFailing",
       "seconds_after_fault_start": 1
     },
     {
-      "alert": "FlinkCheckpointFailures",
-      "seconds_after_fault_start": 64
+      "alert": "OpsAgentAlertsDropped",
+      "seconds_after_fault_start": 1
     },
     {
-      "alert": "KafkaNoActiveController",
-      "seconds_after_fault_start": 486
+      "alert": "InfoInhibitor",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 49
     }
   ],
   "expected_alerts": [],
@@ -29,8 +37,8 @@
     "IngestErrorBudgetBurnFast"
   ],
   "iceberg": {
-    "expected": 66000,
-    "found": 66000,
+    "expected": 65900,
+    "found": 65900,
     "missing": 0,
     "duplicates": 0
   },

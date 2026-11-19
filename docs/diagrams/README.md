@@ -42,7 +42,11 @@ One infographic per major flow: numbered steps and the measured numbers from rec
 
 ## **Changing a diagram**
 
-The dark diagrams were made with a separate generator that is not in this repository, so nothing here rebuilds them. To change one, edit its SVG and export a PNG at the same size.
+The dark diagrams were made with a separate generator that is not in this repository, so nothing here rebuilds them. To change one, edit its SVG and export a PNG at the same size with CairoSVG 2.8.2 and the DejaVu fonts. That pipeline reproduced the existing `workflow-ingestion-exactly-once.png` pixel for pixel (checked 2026-11-18; rsvg-convert spaces the text slightly wider). From the repository root in Git Bash, with `<name>` replaced:
+
+```bash
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(cygpath -w "$PWD/docs/diagrams"):/w" -w /w python:3.14.7-slim-trixie sh -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends libcairo2 fonts-dejavu-core && pip install -q cairosvg==2.8.2 && python -c "import cairosvg; cairosvg.svg2png(url=\"<name>.svg\", write_to=\"<name>.png\")"'
+```
 
 `make diagrams` draws light reference versions from code in [**`local/tools/diagrams/`**](../../local/tools/diagrams/) into `build/diagrams/` (git-ignored) and never writes to this folder. The numbers in the workflow infographics live in the `WORKFLOWS` list of `workflows.py`, taken from the results docs: when a result changes, update that list and the dark SVG. It needs `uv` and Graphviz (`dot`) on the PATH, and installs the hash-locked [**`requirements.txt`**](../../local/tools/diagrams/requirements.txt) (the Python [**`diagrams`**](https://diagrams.mingrammer.com/) library 0.25.1) into `build/diagrams-venv`.
 

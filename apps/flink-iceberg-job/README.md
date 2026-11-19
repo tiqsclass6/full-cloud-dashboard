@@ -15,7 +15,7 @@ Design reasoning: [**ADR 0004**](../../docs/architecture-decisions/0004-flink-to
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **No loss after a crash**                    | Kafka offsets and operator state are in Flink checkpoints (10 s, to S3); a restart rewinds to the last completed checkpoint                                                                  |
 | **No duplicate rows after a restart**        | The Iceberg sink writes data files, then commits a snapshot only when the checkpoint covering them completes. Files from a failed attempt are never committed, and a re-commit is idempotent |
-| **No duplicates from producer retries**      | `Deduplicator` drops repeated `event_id`s using keyed state that is part of every checkpoint and savepoint                                                                                   |
+| **No duplicates from producer retries**      | `Deduplicator` drops repeated `event_id`s using keyed state that is part of every checkpoint and savepoint; the count is `flink_taskmanager_job_task_operator_duplicatesDropped`             |
 | **Safe upgrades**                            | `upgradeMode: savepoint`: the operator stops the job with a savepoint and restores from it                                                                                                   |
 | **Producers and table evolve independently** | The deserializer reads with the writer schema and maps by column name; see "Schema evolution" below                                                                                          |
 

@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -135,13 +136,15 @@ public final class LoadGen {
 
     static String body(Options options) {
         ThreadLocalRandom random = ThreadLocalRandom.current();
-        StringBuilder body = new StringBuilder(options.batchSize() * 110);
+        StringBuilder body = new StringBuilder(options.batchSize() * 160);
         body.append('[');
         for (int i = 0; i < options.batchSize(); i++) {
             if (i > 0) {
                 body.append(',');
             }
-            body.append("{\"source\":\"load-").append(random.nextInt(options.sources()))
+            // The service requires a client-chosen id; random bits from the thread-local generator are cheap.
+            body.append("{\"event_id\":\"").append(new UUID(random.nextLong(), random.nextLong()))
+                    .append("\",\"source\":\"load-").append(random.nextInt(options.sources()))
                     .append("\",\"type\":\"load.test\",\"value\":").append(random.nextDouble())
                     .append(",\"attributes\":{\"region\":\"us-east-1\",\"run\":\"loadgen\"}}");
         }

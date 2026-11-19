@@ -10,24 +10,40 @@ POST /v1/events  --> validate --> back-pressure --> Avro encode --> Kafka (key =
 `POST /v1/events` with one JSON object or an array (up to 500):
 
 ```json
-{"source": "host-1", "type": "cpu.usage", "value": 0.42,
- "timestamp": 1793232000000, "event_id": "optional-uuid", "region": "us-east-1", "attributes": {"host": "a"}}
+{"event_id": "3f2b8c1e-5c1a-4c55-9a53-1b2f6b1f0c11", "source": "host-1", "type": "cpu.usage", "value": 0.42,
+ "timestamp": 1793232000000, "region": "us-east-1", "attributes": {"host": "a"}}
 ```
+
+`event_id` (a UUID), `source` and `type` are required; the rest is optional. The source chooses the id **before the first send** and keeps it for every retry of that event: that is what lets the pipeline recognise a retry as a copy.
 
 | **Status** | **Meaning**                                                                                                            |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **200**    | Every event acknowledged by Kafka. Body: `{"accepted": n, "event_ids": [...]}`                                         |
-| **400**    | Validation failed or malformed JSON (including a `null` event). Nothing was published                                  |
+| **400**    | Validation failed (including a missing `event_id`) or malformed JSON (including a `null` event). Nothing was published |
 | **413**    | Body larger than `MAX_BODY_BYTES`                                                                                      |
 | **429**    | In-flight limit reached (`Retry-After: 1`). Retry with the same `event_id`                                             |
-| **503**    | Kafka did not acknowledge in time or failed (`Retry-After: 2`). Some events may be stored: retry with the returned ids |
+| **503**    | Kafka did not acknowledge in time or failed (`Retry-After: 2`). Some events may be stored: retry with the same ids     |
 
-A 503 body is `{"failed": n, "reason": ..., "event_ids": [...], "failed_event_ids": [...]}`. `event_ids` lists every event in request order, ids the server generated included, so a retry reuses them and downstream de-duplication drops the copies that were already stored.
+A 503 body is `{"failed": n, "reason": ..., "event_ids": [...], "failed_event_ids": [...]}`, with every id in request order.
+
+### **Retry contract**
+
+| **What the source sees**                                | **What it does**                                     |
+| ------------------------------------------------------- | ---------------------------------------------------- |
+| **200**                                                 | Done: every event is on all in-sync Kafka replicas   |
+| **429, 503, a timeout, a dropped connection, no reply** | Retry the same events with the same `event_id`s      |
+| **400, 413**                                            | Fix the request; retrying it unchanged will not help |
+
+- **Why a retry is safe.** Without a 200 the source cannot know whether Kafka already has the events (the reply can be lost after the brokers acknowledged them). A retry may therefore write a second copy to Kafka; the Flink job drops every copy of an `event_id` it has already seen, so the table gets each event once.
+- **The retry window is 60 minutes** (`DEDUPE_TTL_MINUTES` in the Flink job). Flink forgets an id 60 minutes after it first saw it, so a retry that arrives later than that is stored a second time. Sources should give up, and report the events as undelivered, well inside that window.
+- **The source must retry.** An event the source drops after a failure is lost; no 200 means "not stored yet".
+- **Tested by** the `ingestion-handoff` chaos experiment ([**results**](../../docs/chaos/README.md)): ingestion pods killed every 30 seconds and the reply of every 20th batch thrown away unread, with every event checked in Iceberg.
 
 The management port (8081) serves `/metrics` (Prometheus), `/health/live` and `/health/ready`.
 
 ## **Design notes**
-- **Delivery:** `acks=all`, idempotent producer, key = `source` (per-source ordering within a partition). End to end the guarantee is *at least once*; consumers de-duplicate on `event_id`.
+- **Delivery:** `acks=all`, idempotent producer, key = `source` (per-source ordering within a partition). The idempotent producer stops the Kafka client's own retries from writing duplicates; it cannot see a retry by the HTTP client, which is a new request. End to end the API is *at least once*; the Flink job de-duplicates on `event_id`.
+- **Client-chosen ids only.** The service used to generate an id when the source sent none, and returned it in the reply. If that reply was lost, the source's retry got a new id and became a second row. Events without `event_id` are now rejected (400).
 - **Schema:** `src/main/resources/schemas/event.avsc` (v2; adds the optional `region`; `event-v1.avsc` is the original), registered at startup under subject `<topic>-value` in Apicurio through its Confluent-compatible API. Records use the Confluent wire format (magic byte, 4-byte schema id, Avro binary) so Flink and Spark can read them with standard deserializers.
 - **Concurrency:** each request runs on a virtual thread, so blocking while waiting for a Kafka acknowledgement is cheap and there is no worker pool to size.
 - **Back-pressure:** a semaphore bounds events that are sent but not yet acknowledged (`MAX_IN_FLIGHT`, default 10,000). When it is exhausted the service answers 429 immediately instead of queueing without bound, keeping memory flat.
@@ -54,7 +70,7 @@ Requires a JDK 17+ to run Gradle; the build provisions JDK 21 automatically.
 ./gradlew installDist      # runnable distributions in service/ and load-generator/ build/install
 ```
 
-Unit tests cover validation, the wire format round trip, the registry client, and the HTTP layer including back-pressure (429), Kafka failure (503) and acknowledgement timeout. The integration test publishes 50 events to a real broker, consumes and decodes them, checks per-source partition affinity, and checks the metrics.
+Unit tests cover validation (including the required `event_id`), the wire format round trip, the registry client, and the HTTP layer including back-pressure (429), Kafka failure (503) and acknowledgement timeout. The integration test publishes 50 events to a real broker, consumes and decodes them, checks per-source partition affinity, and checks the metrics.
 
 ## **Run on the local kind cluster**
 From the repository root (cluster from `make local-up`):

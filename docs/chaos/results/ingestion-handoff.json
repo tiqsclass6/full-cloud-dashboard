@@ -1,0 +1,37 @@
+{
+  "experiment": "ingestion-handoff",
+  "run_at": "2026-11-19T00:46:37Z",
+  "fault_seconds": 365,
+  "events_sent": 63750,
+  "retried_batches": 7,
+  "replies_discarded": 63,
+  "ingestion_pods_replaced": 12,
+  "duplicates_dropped_by_flink": 3150,
+  "recovery_seconds": 206,
+  "max_consumer_lag": 550,
+  "max_checkpoint_ms": 1378,
+  "alerts_fired": [
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "InfoInhibitor",
+      "seconds_after_fault_start": 463
+    }
+  ],
+  "expected_alerts": [],
+  "forbidden_alerts": [
+    "FlinkJobNotRunning",
+    "IcebergTableStale",
+    "FlinkCheckpointsStalled"
+  ],
+  "iceberg": {
+    "expected": 63750,
+    "found": 63750,
+    "missing": 0,
+    "duplicates": 0
+  },
+  "note": "",
+  "passed": true
+}

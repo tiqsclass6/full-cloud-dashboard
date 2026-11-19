@@ -12,10 +12,11 @@ import org.junit.jupiter.api.Test;
 class EventValidatorTest {
 
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-28T12:00:00Z"), ZoneOffset.UTC);
+    private static final String ID = "3f2b8c1e-5c1a-4c55-9a53-1b2f6b1f0c11";
     private final EventValidator validator = new EventValidator(CLOCK);
 
     private static EventRequest event(String source, String type) {
-        return new EventRequest(null, source, type, null, null, null);
+        return new EventRequest(ID, source, type, null, null, null);
     }
 
     @Test
@@ -44,9 +45,17 @@ class EventValidatorTest {
 
     @Test
     void validatesOptionalRegion() {
-        assertThat(validator.validate(new EventRequest(null, "s", "t", null, null, null, "us-east-1"))).isEmpty();
-        assertThat(validator.validate(new EventRequest(null, "s", "t", null, null, null, "bad region!")))
+        assertThat(validator.validate(new EventRequest(ID, "s", "t", null, null, null, "us-east-1"))).isEmpty();
+        assertThat(validator.validate(new EventRequest(ID, "s", "t", null, null, null, "bad region!")))
                 .anyMatch(e -> e.contains("region may only contain"));
+    }
+
+    @Test
+    void requiresEventId() {
+        assertThat(validator.validate(new EventRequest(null, "s", "t", null, null, null)))
+                .containsExactly("event_id is required");
+        assertThat(validator.validate(new EventRequest(" ", "s", "t", null, null, null)))
+                .containsExactly("event_id is required");
     }
 
     @Test
@@ -58,17 +67,17 @@ class EventValidatorTest {
     @Test
     void rejectsTimestampsOutsideAllowedWindow() {
         long now = CLOCK.millis();
-        EventRequest old = new EventRequest(null, "s", "t", now - 8L * 24 * 3600 * 1000, null, null);
-        EventRequest future = new EventRequest(null, "s", "t", now + 6L * 60 * 1000, null, null);
+        EventRequest old = new EventRequest(ID, "s", "t", now - 8L * 24 * 3600 * 1000, null, null);
+        EventRequest future = new EventRequest(ID, "s", "t", now + 6L * 60 * 1000, null, null);
         assertThat(validator.validate(old)).anyMatch(e -> e.contains("in the past"));
         assertThat(validator.validate(future)).anyMatch(e -> e.contains("in the future"));
     }
 
     @Test
     void rejectsNonFiniteValues() {
-        assertThat(validator.validate(new EventRequest(null, "s", "t", null, Double.NaN, null)))
+        assertThat(validator.validate(new EventRequest(ID, "s", "t", null, Double.NaN, null)))
                 .containsExactly("value must be a finite number");
-        assertThat(validator.validate(new EventRequest(null, "s", "t", null, Double.POSITIVE_INFINITY, null)))
+        assertThat(validator.validate(new EventRequest(ID, "s", "t", null, Double.POSITIVE_INFINITY, null)))
                 .containsExactly("value must be a finite number");
     }
 
@@ -78,9 +87,9 @@ class EventValidatorTest {
         for (int i = 0; i <= EventValidator.MAX_ATTRIBUTES; i++) {
             many.put("k" + i, "v");
         }
-        assertThat(validator.validate(new EventRequest(null, "s", "t", null, null, many)))
+        assertThat(validator.validate(new EventRequest(ID, "s", "t", null, null, many)))
                 .anyMatch(e -> e.contains("more than 32 entries"));
-        assertThat(validator.validate(new EventRequest(null, "s", "t", null, null, Map.of("k", "v".repeat(1025)))))
+        assertThat(validator.validate(new EventRequest(ID, "s", "t", null, null, Map.of("k", "v".repeat(1025)))))
                 .anyMatch(e -> e.contains("attribute values"));
     }
 }

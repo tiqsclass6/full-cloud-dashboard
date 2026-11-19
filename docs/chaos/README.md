@@ -1,22 +1,23 @@
 # **Chaos experiments: results**
 
-Four fault-injection experiments against the local platform (kind, three worker nodes in three zones), run by `local/scripts/chaos-run.sh` on 2026-10-31. Experiment definitions: [**chaos/README.md**](../../chaos/README.md). Raw results: [**results/**](results/).
+Five fault-injection experiments against the local platform (kind, three worker nodes in three zones), run by `local/scripts/chaos-run.sh`: four on 2026-10-31 and `ingestion-handoff` on 2026-11-19. Experiment definitions: [**chaos/README.md**](../../chaos/README.md). Raw results: [**results/**](results/).
 
 Each run sends 100 events per second through the ingestion service for 11 minutes, with a fresh range of event ids. The fault runs from minute 2 to minute 8. Afterwards the harness checks that **every one of those ids is in the Iceberg table exactly once**.
 
 ## **Results**
 
-| **Experiment**             | **Fault**                                       | **Events sent** | **In Iceberg (missing / duplicates)** | **Peak consumer lag** | **Recovered after fault ends** | **Alerts fired (seconds after the fault started)**                                                          | **Result** |
-| -------------------------- | ----------------------------------------------- | --------------- | ------------------------------------- | --------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------- | ---------- |
-| **broker-isolation**       | One broker: 100% packet loss, 6 min             | 63,550          | 63,550 (0 / 0)                        | 800                   | 216 s                          | KafkaBrokerDown 222, KafkaNoActiveController 254, KafkaUnderReplicatedPartitions 409                        | Passed     |
-| **flink-taskmanager-kill** | A TaskManager killed under load                 | 65,950          | 65,950 (0 / 0)                        | 4,050                 | 197 s                          | FlinkCheckpointFailures 64                                                                                  | Passed     |
-| **kafka-latency**          | 400 ms delay, Flink to brokers, 6 min           | 66,000          | 66,000 (0 / 0)                        | 271                   | 225 s                          | none                                                                                                        | Passed     |
-| **zone-outage**            | Node `lakehouse-worker3` (zone-c) paused, 6 min | 64,150          | 64,150 (0 / 0)                        | 31,800                | 192 s                          | FlinkJobRestarting 96, KafkaBrokerDown 190, KafkaUnderReplicatedPartitions 393, AlertmanagerClusterDown 461 | Passed     |
+| **Experiment**             | **Fault**                                                             | **Events sent** | **In Iceberg (missing / duplicates)** | **Peak consumer lag** | **Recovered after fault ends** | **Alerts fired (seconds after the fault started)**                                                          | **Result** |
+| -------------------------- | --------------------------------------------------------------------- | --------------- | ------------------------------------- | --------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------- | ---------- |
+| **broker-isolation**       | One broker: 100% packet loss, 6 min                                   | 63,550          | 63,550 (0 / 0)                        | 800                   | 216 s                          | KafkaBrokerDown 222, KafkaNoActiveController 254, KafkaUnderReplicatedPartitions 409                        | Passed     |
+| **flink-taskmanager-kill** | A TaskManager killed under load                                       | 65,950          | 65,950 (0 / 0)                        | 4,050                 | 197 s                          | FlinkCheckpointFailures 64                                                                                  | Passed     |
+| **kafka-latency**          | 400 ms delay, Flink to brokers, 6 min                                 | 66,000          | 66,000 (0 / 0)                        | 271                   | 225 s                          | none                                                                                                        | Passed     |
+| **zone-outage**            | Node `lakehouse-worker3` (zone-c) paused, 6 min                       | 64,150          | 64,150 (0 / 0)                        | 31,800                | 192 s                          | FlinkJobRestarting 96, KafkaBrokerDown 190, KafkaUnderReplicatedPartitions 393, AlertmanagerClusterDown 461 | Passed     |
+| **ingestion-handoff**      | An ingestion pod killed every 30 s, 6 min; every 20th reply discarded | 63,750          | 63,750 (0 / 0)                        | 550                   | 206 s                          | none new (FlinkCheckpointFailures was already firing, see below)                                            | Passed     |
 
 How to read the table:
 
 - **Recovery** is measured from the end of the fault to the moment the job is running and consumer lag is zero. The load continues for 3 minutes after the fault by design, so most of each figure is that tail; the backlog itself drained within seconds of the load ending.
-- **Ingestion** never failed a request in any experiment. Load shedding and Kafka errors would have shown as retried batches: 2 in the broker isolation, 1 in the zone outage, 0 otherwise.
+- **Ingestion** never failed a request in the first four experiments. Load shedding and Kafka errors would have shown as retried batches: 2 in the broker isolation, 1 in the zone outage, 0 otherwise. In `ingestion-handoff` 7 batches were retried because the pod kills cut their connections.
 - **`IcebergCompactionOverdue`** was firing throughout and is left out of the table. It was real (the scheduled compaction is suspended locally) and unrelated to the faults; running the compaction cleared it.
 
 ## **What the experiments found**
@@ -42,9 +43,27 @@ wsl --shutdown
 
 Then start Docker Desktop again; the kind nodes restart with it, and Argo CD and the Flink job recover by themselves (Flink from its latest checkpoint).
 
+## **The ingestion handoff (2026-11-19)**
+
+The question this answers: what happens to an event when the ingestion API fails before Kafka has it, or when Kafka has it but the reply never reaches the source? The source cannot tell these apart, so it retries with the same `event_id`, and the pipeline has to store the event exactly once either way ([**retry contract**](../../apps/ingestion-service/README.md#retry-contract)).
+
+| **Measured**                        | **Value**   | **What it shows**                                                                                     |
+| ----------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------- |
+| **Ingestion pods replaced**         | 12          | One kill every 30 s (`gracePeriod: 0`, no clean shutdown), counted from `kube_pod_info`               |
+| **Batches retried after a cut**     | 7 (350 ids) | Requests that died with a pod; none of them left a copy in Kafka (see the next rows)                  |
+| **Replies discarded by the client** | 63 (3,150)  | The server received the batch and Kafka stored it; the client closed the connection without reading   |
+| **Copies dropped by Flink**         | 3,150       | `duplicatesDropped` counter: exactly 63 x 50, so every discarded reply did put a second copy in Kafka |
+| **In Iceberg**                      | 63,750      | Every id once: 0 missing, 0 duplicates                                                                |
+
+- **The lost-acknowledgement case was exercised for real:** the counter proves the retried copies reached Kafka, so the exactly-once result is not just a sign that no duplicates were ever created.
+- **The pod kills only produced the other case.** The 7 cut batches added no copies, so each died before Kafka stored it (or before it reached the pod). No kill landed in the few milliseconds between the Kafka acknowledgement and the reply; the discarded replies stand in for that case.
+- **`FlinkCheckpointFailures` was already firing** before the fault, left over from restarting the Flink job on its new image a few minutes earlier, and it resolved during the run. `InfoInhibitor` is kube-prometheus-stack's own helper alert. No forbidden alert fired.
+- **Server-made ids are gone.** Before this run the service generated an `event_id` when the source sent none, and a lost reply then made a duplicate that no part of the pipeline could detect. The service now rejects events without one (400), so this experiment sends only client-chosen ids.
+
 ## **What these results do not show**
 
 - **Single runs.** Each experiment ran once after the harness was fixed, so the timings are examples, not distributions.
+- **The handoff drill's client is the test harness.** It retries correctly by construction. A real source that gives up, or retries after the 60-minute de-duplication window, can still lose or duplicate events; that part is a contract for the source, not something the platform can enforce.
 - **A paused kind node is not a real availability zone.** All nodes share one host, one disk and one network, so the zone outage tests Kubernetes and Kafka behaviour, not real AWS failure modes.
 - **No AWS run.** Phase 8 was verified locally by choice; the AWS overlays render and validate, but the experiments did not run on EKS.
 - **The broker isolation drops the broker's outgoing traffic only.** That makes it unreachable in practice (no TCP handshake completes), but it is not a full two-way network partition.

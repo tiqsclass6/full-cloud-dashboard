@@ -45,5 +45,9 @@ class LoadGenTest {
         assertThat(body).hasSize(3);
         assertThat(body.get(0).get("source").asText()).startsWith("load-");
         assertThat(body.get(0).get("type").asText()).isEqualTo("load.test");
+        // Every event carries its own UUID (the service rejects events without one).
+        String first = body.get(0).get("event_id").asText();
+        assertThat(java.util.UUID.fromString(first).toString()).isEqualTo(first);
+        assertThat(body.get(1).get("event_id").asText()).isNotEqualTo(first);
     }
 }

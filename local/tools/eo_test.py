@@ -6,13 +6,16 @@
   eo_test.py verify-evolution --total 1500 --with-region 500 --region eu-west-1
   eo_test.py verify  --expected 24000 [--catalog-uri http://localhost:8181 --s3-endpoint http://localhost:8333]
   eo_test.py stream --start 8000000 --rate 200 --seconds 600     (steady load for chaos experiments)
+             [--drop-reply-every 20]                            (every 20th batch: the reply is thrown away unread)
   eo_test.py verify-range --start 8000000 --count 12000
 """
 import argparse
+import http.client
 import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -99,14 +102,32 @@ def cmd_verify(a):
         sys.exit(1)
 
 
+def send_and_drop_reply(url, body):
+    """Send a batch and close the connection without reading the reply: the server has the events, the client never
+    learns the outcome. This is the "Kafka accepted it but the acknowledgement was lost" case."""
+    u = urllib.parse.urlsplit(url)
+    conn = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=15)
+    try:
+        conn.request("POST", u.path, body=body, headers={"Content-Type": "application/json"})
+        time.sleep(0.5)  # give the request time to cross the port-forward before the connection goes away
+    except OSError:
+        pass  # the request may not have arrived either; the retry below covers both cases
+    finally:
+        conn.close()
+
+
 def cmd_stream(a):
     """Steady load for chaos experiments: `rate` events/s for `seconds`; a batch failing past `give_up` is reported uncertain."""
     batch, give_up = 50, 180
     deadline = time.monotonic() + a.seconds
-    next_id, retried = a.start, 0
+    next_id, retried, dropped, batches = a.start, 0, 0, 0
     while time.monotonic() < deadline:
         started = time.monotonic()
         body = json.dumps([make_event(i) for i in range(next_id, next_id + batch)]).encode()
+        batches += 1
+        if a.drop_reply_every and batches % a.drop_reply_every == 0:
+            send_and_drop_reply(a.url, body)
+            dropped += 1  # then retried below with the same ids, as a real client would
         while True:
             try:
                 req = urllib.request.Request(a.url, data=body, headers={"Content-Type": "application/json"})
@@ -116,12 +137,13 @@ def cmd_stream(a):
                 retried += 1
                 if time.monotonic() - started > give_up:
                     print(json.dumps({"start": a.start, "sent": next_id - a.start, "uncertain": [next_id, next_id + batch],
-                                      "retried": retried, "complete": False}))
+                                      "retried": retried, "dropped_replies": dropped, "complete": False}))
                     sys.exit(2)
                 time.sleep(1)
         next_id += batch
         time.sleep(max(0.0, batch / a.rate - (time.monotonic() - started)))
-    print(json.dumps({"start": a.start, "sent": next_id - a.start, "retried": retried, "complete": True}))
+    print(json.dumps({"start": a.start, "sent": next_id - a.start, "retried": retried, "dropped_replies": dropped,
+                      "batch": batch, "complete": True}))
 
 
 def cmd_verify_range(a):
@@ -195,6 +217,7 @@ def main():
     st.add_argument("--rate", type=float, default=200, help="events per second")
     st.add_argument("--seconds", type=float, required=True)
     st.add_argument("--url", default="http://localhost:8082/v1/events")
+    st.add_argument("--drop-reply-every", type=int, default=0, help="every Nth batch: send, discard the reply, retry")
     st.set_defaults(fn=cmd_stream)
     vr = sub.add_parser("verify-range")
     vr.add_argument("--start", type=int, required=True)

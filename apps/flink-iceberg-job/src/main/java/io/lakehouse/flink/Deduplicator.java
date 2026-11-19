@@ -6,6 +6,7 @@ import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.metrics.Counter;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.util.Collector;
@@ -17,6 +18,7 @@ public final class Deduplicator extends KeyedProcessFunction<String, RowData, Ro
 
     private final Duration ttl;
     private transient ValueState<Boolean> seen;
+    private transient Counter duplicatesDropped;
 
     public Deduplicator(Duration ttl) {
         this.ttl = ttl;
@@ -31,6 +33,8 @@ public final class Deduplicator extends KeyedProcessFunction<String, RowData, Ro
                 .cleanupFullSnapshot()
                 .build());
         seen = getRuntimeContext().getState(descriptor);
+        // Shows that retried copies really reached Kafka (Prometheus: ..._operator_duplicatesDropped).
+        duplicatesDropped = getRuntimeContext().getMetricGroup().counter("duplicatesDropped");
     }
 
     @Override
@@ -38,6 +42,8 @@ public final class Deduplicator extends KeyedProcessFunction<String, RowData, Ro
         if (seen.value() == null) {
             seen.update(Boolean.TRUE);
             out.collect(row);
+        } else {
+            duplicatesDropped.inc();
         }
     }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run one chaos experiment, judge alerts, recovery and exactly-once, and write docs/chaos/results/<name>.json.
-#   usage: chaos-run.sh <broker-isolation|flink-taskmanager-kill|kafka-latency|zone-outage>
+#   usage: chaos-run.sh <broker-isolation|flink-taskmanager-kill|kafka-latency|zone-outage|ingestion-handoff>
 #   CAPTURE=1 also records an ops agent eval fixture after the trigger alert fires
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require kubectl docker jq curl
@@ -20,6 +20,7 @@ case "${EXP}" in
   flink-taskmanager-kill) EXPECT="";                 FORBID="IcebergTableStale FlinkCheckpointsStalled FlinkJobNotRunning IngestErrorBudgetBurnFast" ;;
   kafka-latency)          EXPECT="";                 FORBID="IngestErrorBudgetBurnFast FlinkJobNotRunning" ;;
   zone-outage)            EXPECT="KafkaBrokerDown";  FORBID="FlinkJobNotRunning" ;;
+  ingestion-handoff)      EXPECT="";                 FORBID="FlinkJobNotRunning IcebergTableStale FlinkCheckpointsStalled" ;;
   *) echo "unknown experiment: ${EXP}" >&2; exit 1 ;;
 esac
 # Ops agent eval capture (CAPTURE=1): the alert that triggers it, and the alerts included in the payload.
@@ -84,18 +85,28 @@ if [ "${EXP}" = zone-outage ]; then
   fi
 fi
 keep_forward monitoring svc/kps-prometheus 9090:9090
-# A port-forward stays bound to one pod: pick an ingestion pod off the node being paused.
-INGEST_POD="$(kc -n apps get pods -l app=ingestion-service --field-selector=status.phase=Running \
-  -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.nodeName}{"\n"}{end}' | awk -v n="${TARGET_NODE}" '$2 != n {print $1; exit}')"
-keep_forward apps "pod/${INGEST_POD}" 8082:8080
+if [ "${EXP}" = ingestion-handoff ]; then
+  # The pods are the target: forward through the Service, so each restart of the forward lands on a live pod.
+  keep_forward apps svc/ingestion-service 8082:8080
+else
+  # A port-forward stays bound to one pod: pick an ingestion pod off the node being paused.
+  INGEST_POD="$(kc -n apps get pods -l app=ingestion-service --field-selector=status.phase=Running \
+    -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.nodeName}{"\n"}{end}' | awk -v n="${TARGET_NODE}" '$2 != n {print $1; exit}')"
+  keep_forward apps "pod/${INGEST_POD}" 8082:8080
+fi
 sleep 6
 [ "$(job_state)" = RUNNING ] && ok "Flink job RUNNING" || { fail "Flink job not RUNNING"; exit 1; }
 already="$(firing | grep -vxE 'Watchdog|PrometheusMissingRuleEvaluations' | tr '\n' ' ' || true)"
 [ -z "${already}" ] && ok "no alerts firing" || echo "  note: already firing before the experiment: ${already}"
 
+# Copies of an event_id that Flink dropped (the counter resets if the job restarts).
+dups() { prom 'sum(flink_taskmanager_job_task_operator_duplicatesDropped{job_name="events_to_iceberg"})'; }
+DUPS_BEFORE="$(dups)"; DROP_ARGS=()
+# The handoff drill also throws away the reply of every 20th batch: the events are stored, the client never hears.
+[ "${EXP}" = ingestion-handoff ] && DROP_ARGS=(--drop-reply-every 20)
 START_ID="$(date +%s)000"
 log "Load: ${RATE} events/s for ${LOAD}s (ids from ${START_ID})"
-"${PY}" -I "${LOCAL_DIR}/tools/eo_test.py" stream --start "${START_ID}" --rate "${RATE}" --seconds "${LOAD}" \
+"${PY}" -I "${LOCAL_DIR}/tools/eo_test.py" stream --start "${START_ID}" --rate "${RATE}" --seconds "${LOAD}" "${DROP_ARGS[@]}" \
   > "${WORK}/stream.json" 2>"${WORK}/stream.err" &
 STREAM=$!
 sleep "${BASELINE}"
@@ -161,12 +172,24 @@ done
 log "Data: every event exactly once"
 SENT="$(jq -r '.sent // 0' < "${WORK}/stream.json" 2>/dev/null || echo 0)"; RETRIED="$(jq -r '.retried // 0' < "${WORK}/stream.json" 2>/dev/null || echo 0)"
 SENT="${SENT:-0}"; RETRIED="${RETRIED:-0}"
+DROPPED="$(jq -r '.dropped_replies // 0' < "${WORK}/stream.json" 2>/dev/null || echo 0)"; DROPPED="${DROPPED:-0}"
 [ "${STREAM_RC}" = 0 ] && ok "load complete: ${SENT} events sent (${RETRIED} retried batches)" || fail "load generator gave up: $(cat "${WORK}/stream.json" "${WORK}/stream.err" 2>/dev/null | head -2)"
 sleep 30   # the last events commit with the next checkpoints
 fwd data svc/iceberg-rest 8181:8181; fwd data svc/s3 8333:8333; sleep 5
 VERIFY="$("${PY}" -I "${LOCAL_DIR}/tools/eo_test.py" verify-range --start "${START_ID}" --count "${SENT}" 2>&1 | tr -d '\r' | tail -1 || true)"
 [ "${SENT}" -gt 0 ] || fail "no events were counted as sent: nothing to verify"
 echo "${VERIFY}" | jq -e '.missing == 0 and .duplicates == 0' >/dev/null 2>&1 && ok "Iceberg: ${VERIFY}" || fail "Iceberg: ${VERIFY}"
+DUPS_AFTER="$(dups)"; DUPS_DROPPED="null"
+[ -n "${DUPS_BEFORE}" ] && [ -n "${DUPS_AFTER}" ] && DUPS_DROPPED=$(( ${DUPS_AFTER%.*} - ${DUPS_BEFORE%.*} ))
+# Pods that existed during the run, minus the two replicas: how many the fault replaced.
+REPLACED="$(prom "count(count_over_time(kube_pod_info{namespace=\"apps\",pod=~\"ingestion-service-.*\"}[$(( $(date +%s) - FAULT_START + 60 ))s])) - 2")"
+REPLACED="${REPLACED%.*}"; REPLACED="${REPLACED:-null}"
+if [ "${EXP}" = ingestion-handoff ]; then
+  echo "  ${DROPPED} replies discarded, ${REPLACED} ingestion pods replaced, ${DUPS_DROPPED} duplicate copies dropped by Flink"
+  # Zero would mean no retry ever produced a second copy in Kafka: the drill would not have tested the lost-ack case.
+  [ "${DUPS_DROPPED}" != null ] && [ "${DUPS_DROPPED}" -gt 0 ] && ok "retried copies reached Kafka and were dropped" \
+    || fail "no duplicate copies were dropped (${DUPS_DROPPED}): the lost-acknowledgement case was not exercised"
+fi
 
 log "Expectations"
 for a in ${EXPECT}; do [ -n "${SEEN[$a]:-}" ] && ok "${a} fired (+${SEEN[$a]}s)" || fail "${a} did not fire"; done
@@ -176,10 +199,12 @@ mkdir -p "${RESULTS}"
 alerts_json="$(for a in "${!SEEN[@]}"; do echo "{\"alert\":\"${a}\",\"seconds_after_fault_start\":${SEEN[$a]}}"; done | jq -s 'sort_by(.seconds_after_fault_start)')"
 jq -n --arg exp "${EXP}" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson fault "$((FAULT_END - FAULT_START))" \
   --argjson sent "${SENT:-0}" --argjson retried "${RETRIED:-0}" --argjson recovered "${RECOVERED:-null}" \
+  --argjson dropped "${DROPPED:-0}" --argjson dups "${DUPS_DROPPED:-null}" --argjson replaced "${REPLACED:-null}" \
   --argjson maxlag "${MAX_LAG}" --argjson maxckpt "${MAX_CKPT}" --argjson alerts "${alerts_json:-[]}" \
   --argjson verify "$(echo "${VERIFY}" | jq -c . 2>/dev/null || echo null)" --arg expect "${EXPECT}" --arg forbid "${FORBID}" \
   --arg note "${NOTE}" --argjson passed "$([ "${FAILED}" -eq 0 ] && echo true || echo false)" \
   '{experiment: $exp, run_at: $at, fault_seconds: $fault, events_sent: $sent, retried_batches: $retried,
+    replies_discarded: $dropped, ingestion_pods_replaced: $replaced, duplicates_dropped_by_flink: $dups,
     recovery_seconds: $recovered, max_consumer_lag: $maxlag, max_checkpoint_ms: $maxckpt, alerts_fired: $alerts,
     expected_alerts: ($expect | split(" ") | map(select(. != ""))), forbidden_alerts: ($forbid | split(" ")),
     iceberg: $verify, note: $note, passed: $passed}' > "${RESULTS}/${EXP}.json"

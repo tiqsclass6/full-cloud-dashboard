@@ -1,50 +1,55 @@
 {
   "experiment": "zone-outage",
-  "run_at": "2026-11-01T08:27:40Z",
-  "fault_seconds": 368,
-  "events_sent": 12150,
-  "retried_batches": 12,
-  "recovery_seconds": 122,
-  "max_consumer_lag": 700,
-  "max_checkpoint_ms": 260,
+  "run_at": "2026-11-19T03:46:44Z",
+  "fault_seconds": 365,
+  "events_sent": 64850,
+  "retried_batches": 1,
+  "replies_discarded": 0,
+  "ingestion_pods_replaced": 0,
+  "duplicates_dropped_by_flink": 50,
+  "recovery_seconds": 218,
+  "max_consumer_lag": 33700,
+  "max_checkpoint_ms": 156,
   "alerts_fired": [
     {
-      "alert": "OpsAgentInvestigationsFailing",
-      "seconds_after_fault_start": 2
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 0
     },
     {
-      "alert": "KafkaNoActiveController",
-      "seconds_after_fault_start": 2
+      "alert": "InfoInhibitor",
+      "seconds_after_fault_start": 0
     },
     {
       "alert": "KafkaBrokerDown",
-      "seconds_after_fault_start": 193
-    },
-    {
-      "alert": "KafkaUnderReplicatedPartitions",
-      "seconds_after_fault_start": 368
+      "seconds_after_fault_start": 175
     },
     {
       "alert": "FlinkJobNotRunning",
-      "seconds_after_fault_start": 368
+      "seconds_after_fault_start": 349
     },
     {
-      "alert": "FlinkCheckpointFailures",
-      "seconds_after_fault_start": 424
+      "alert": "KafkaUnderReplicatedPartitions",
+      "seconds_after_fault_start": 366
+    },
+    {
+      "alert": "OpsAgentInvestigationsFailing",
+      "seconds_after_fault_start": 410
+    },
+    {
+      "alert": "AlertmanagerClusterDown",
+      "seconds_after_fault_start": 475
     }
   ],
   "expected_alerts": [
     "KafkaBrokerDown"
   ],
-  "forbidden_alerts": [
-    "FlinkJobNotRunning"
-  ],
+  "forbidden_alerts": [],
   "iceberg": {
-    "expected": 12150,
-    "found": 12150,
+    "expected": 64850,
+    "found": 64850,
     "missing": 0,
     "duplicates": 0
   },
-  "note": "",
-  "passed": false
+  "note": "the paused node ran the Flink JobManager",
+  "passed": true
 }

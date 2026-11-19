@@ -136,7 +136,7 @@ footer { border-top: 1px solid var(--line); padding-top: 20px; font-size: 0.85re
     </nav>
     <div class="ledger" role="list" aria-label="Measured results">
       <div role="listitem"><span class="n">24,000 <b>=</b> 24,000</span><span class="l">rows = distinct ids after a TaskManager kill and a savepoint restore</span></div>
-      <div role="listitem"><span class="n">0 / 323,400</span><span class="l">events lost or duplicated across five chaos experiments</span></div>
+      <div role="listitem"><span class="n">0 / 324,100</span><span class="l">events lost or duplicated across five chaos experiments</span></div>
       <div role="listitem"><span class="n">70 &rarr; 1</span><span class="l">Iceberg files after compaction; full scan 1.68 s &rarr; 0.48 s</span></div>
       <div role="listitem"><span class="n">5,000 <b>=</b> 5,000</span><span class="l">events counted once by Athena on EKS</span></div>
     </div>
@@ -189,7 +189,7 @@ footer { border-top: 1px solid var(--line); padding-top: 20px; font-size: 0.85re
         <thead><tr><th>Area</th><th>Result</th><th>Source</th></tr></thead>
         <tbody>
           <tr><td>Exactly once</td><td>24,000 events with 3,400 duplicate sends and re-sends, a TaskManager kill and a savepoint restore: <span class="mono">24,000</span> rows, <span class="mono">24,000</span> distinct</td><td><code>docs/flink-iceberg.md</code></td></tr>
-          <tr><td>Chaos</td><td>Broker isolation, TaskManager kill, 400 ms Kafka latency, a paused node, ingestion pods killed with replies lost: <span class="mono">323,400</span> events, none lost or duplicated</td><td><code>docs/chaos/</code></td></tr>
+          <tr><td>Chaos</td><td>Broker isolation, TaskManager kill, 400 ms Kafka latency, a paused node, ingestion pods killed with replies lost: <span class="mono">324,100</span> events, none lost or duplicated</td><td><code>docs/chaos/</code></td></tr>
           <tr><td>Iceberg maintenance</td><td>70 small files to 1, 56 snapshots to 1; compaction under 5,000 events/s with Kafka = table at <span class="mono">3,501,500</span></td><td><code>docs/spark-iceberg.md</code></td></tr>
           <tr><td>JVM performance</td><td>30,000 events/s, 0 errors, p99 23 ms; an Avro encoder change cut allocation 19%; G1 and generational ZGC compared with JFR</td><td><code>docs/performance/</code></td></tr>
           <tr><td>AWS end to end</td><td>5,000 events through ingestion, Kafka, Flink and Iceberg on S3 and Glue; Athena counted 5,000 rows, 5,000 distinct</td><td><code>docs/aws.md</code></td></tr>

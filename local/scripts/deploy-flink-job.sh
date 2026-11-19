@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the Flink job, load its image into kind and (re)deploy the FlinkDeployment.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-require docker kind kubectl
+require docker kind kubectl jq
 
 APP_DIR="$(cd "${LOCAL_DIR}/../apps/flink-iceberg-job" && pwd)"
 IMAGE="lakehouse/flink-iceberg-job:dev"
@@ -32,14 +32,25 @@ preload_image "${IMAGE}" force
 
 log "Restarting the job on the new image"
 # The tag dev does not change locally: bump restartNonce (ignored by Argo CD) to restart via a savepoint.
+NONCE="$(date +%s)"
 kc -n apps patch flinkdeployment events-to-iceberg --type merge \
-  -p "{\"spec\":{\"restartNonce\":$(date +%s)}}" >/dev/null
+  -p "{\"spec\":{\"restartNonce\":${NONCE}}}" >/dev/null
 
-log "Waiting for the job to be RUNNING"
-for _ in $(seq 1 90); do
-  state="$(kc -n apps get flinkdeployment events-to-iceberg -o jsonpath='{.status.jobStatus.state}' 2>/dev/null || true)"
-  [ "${state}" = "RUNNING" ] && break
+log "Waiting for the restart (nonce ${NONCE}) to finish"
+# RUNNING alone is not enough: the old job is RUNNING until the operator acts on the patch. Done means the
+# operator recorded this nonce in its last stable spec, and the job is RUNNING and the deployment STABLE.
+stable_nonce() {
+  kc -n apps get flinkdeployment events-to-iceberg -o jsonpath='{.status.reconciliationStatus.lastStableSpec}' \
+    2>/dev/null | jq -r '.spec.restartNonce // empty' 2>/dev/null || true
+}
+finished="" last=""
+for _ in $(seq 1 120); do
+  status="$(kc -n apps get flinkdeployment events-to-iceberg \
+    -o jsonpath='{.status.jobStatus.state} {.status.lifecycleState}' 2>/dev/null || true)"
+  [ "${status}" != "${last}" ] && echo "  ${status}" && last="${status}"
+  if [ "${status}" = "RUNNING STABLE" ] && [ "$(stable_nonce)" = "${NONCE}" ]; then finished=1; break; fi
   sleep 5
 done
 kc -n apps get flinkdeployment events-to-iceberg
-[ "${state:-}" = "RUNNING" ] || { echo "job is not RUNNING (state: ${state:-unknown})" >&2; exit 1; }
+[ -n "${finished}" ] || { echo "restart not finished after 10 minutes (status: ${status:-unknown}, stable nonce: $(stable_nonce))" >&2; exit 1; }
+ok "job restarted on the new image (nonce ${NONCE})"

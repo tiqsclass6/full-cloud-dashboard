@@ -48,7 +48,8 @@ java -cp /opt/flink/usrlib/job.jar io.lakehouse.flink.SchemaTool add-column regi
 ## **Build, test, deploy**
 ```bash
 ./gradlew build            # unit tests (deserializer mapping, evolution cases, Deduplicator on a mini-cluster) + fat jar
-make local-deploy-flink    # from the repository root: build, load image into kind, apply the FlinkDeployment
+make local-deploy-flink    # from the repository root: build, load image into kind, restart the job via a savepoint;
+                           # returns once the operator reports the new restartNonce as stable and the job RUNNING
 ```
 
 The unit tests cover the decode and evolution rules and the de-duplication operator. The end-to-end exactly-once behaviour is tested against the real cluster (`make local-test-exactly-once`).

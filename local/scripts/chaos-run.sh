@@ -68,23 +68,41 @@ lag() { prom 'sum(kafka_consumergroup_lag{consumergroup="flink-events-to-iceberg
 
 log "Preflight (${EXP})"
 kc -n chaos-mesh rollout status deploy/chaos-controller-manager --timeout=60s >/dev/null && ok "Chaos Mesh ready" || { fail "Chaos Mesh not ready"; exit 1; }
+keep_forward monitoring svc/kps-prometheus 9090:9090
 TARGET_NODE=""
 if [ "${EXP}" = zone-outage ]; then
+  sleep 4
+  # Only the leading JobManager runs the job, so only it reports job uptime.
+  leader_pod="$(curl -s --max-time 10 -G --data-urlencode 'query=flink_jobmanager_job_uptime{job_name="events_to_iceberg"} > 0' \
+    http://localhost:9090/api/v1/query | jq -r '.data.result[0].metric.pod // empty' 2>/dev/null)"
+  leader_node="$([ -n "${leader_pod}" ] && kc -n apps get pod "${leader_pod}" -o jsonpath='{.spec.nodeName}' 2>/dev/null)"
   # A broker's worker that hosts neither Prometheus nor the agent's tools, so the run can still be observed.
+  # Prefer the leading JobManager's node: the hardest case, since the job then has to fail over.
   observers="$(kc -n monitoring get pod prometheus-kps-prometheus-0 -o jsonpath='{.spec.nodeName}') $(kc -n ai-ops get pods \
     -l 'app in (mcp-platform-tools,ops-agent)' -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{end}' 2>/dev/null)"
   for n in $(kc -n kafka get pods -l strimzi.io/broker-role=true -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}'); do
-    [[ " ${observers} " != *" ${n} "* ]] && TARGET_NODE="${n}" && break
+    [[ " ${observers} " == *" ${n} "* ]] && continue
+    [ -z "${TARGET_NODE}" ] && TARGET_NODE="${n}"
+    [ "${n}" = "${leader_node}" ] && TARGET_NODE="${n}" && break
   done
   [ -n "${TARGET_NODE}" ] || { fail "every broker node hosts an observer (Prometheus or the ops agent tools)"; exit 1; }
-  # Losing the JobManager's node stops the job, so FlinkJobNotRunning is then expected, not forbidden.
-  jm_node="$(kc -n apps get pods -l app=events-to-iceberg,component=jobmanager -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)"
-  if [ "${jm_node}" = "${TARGET_NODE}" ]; then
-    FORBID="${FORBID/FlinkJobNotRunning/}"; NOTE="the paused node ran the Flink JobManager"
-    echo "  note: ${TARGET_NODE} runs the Flink JobManager; FlinkJobNotRunning is expected"
+  # A JobManager on another node can take over; with none, losing the node stops the job and FlinkJobNotRunning
+  # is expected, not forbidden.
+  jm_nodes="$(kc -n apps get pods -l app=events-to-iceberg,component=jobmanager --field-selector=status.phase=Running \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>/dev/null)"
+  standby_elsewhere="$(grep -vx "${TARGET_NODE}" <<< "${jm_nodes}" | head -1 || true)"
+  if [ "${leader_node}" = "${TARGET_NODE}" ] && [ -n "${standby_elsewhere}" ]; then
+    # The standby must keep the pipeline committing, not just keep the job "running".
+    [[ " ${FORBID} " == *" FlinkCheckpointsStalled "* ]] || FORBID="${FORBID} FlinkCheckpointsStalled"
+    NOTE="the paused node ran the leading Flink JobManager; the standby on ${standby_elsewhere} had to take over"
+    echo "  note: ${TARGET_NODE} runs the leading JobManager (${leader_pod}); the standby on ${standby_elsewhere} must take over"
+  elif grep -qx "${TARGET_NODE}" <<< "${jm_nodes}" && [ -z "${standby_elsewhere}" ]; then
+    FORBID="${FORBID/FlinkJobNotRunning/}"; NOTE="the paused node ran the only Flink JobManager"
+    echo "  note: ${TARGET_NODE} runs the only Flink JobManager; FlinkJobNotRunning is expected"
+  else
+    echo "  note: the leading JobManager (${leader_pod:-unknown}) is not on ${TARGET_NODE}"
   fi
 fi
-keep_forward monitoring svc/kps-prometheus 9090:9090
 if [ "${EXP}" = ingestion-handoff ]; then
   # The pods are the target: forward through the Service, so each restart of the forward lands on a live pod.
   keep_forward apps svc/ingestion-service 8082:8080

@@ -4,6 +4,10 @@
 {{- if and .Values.restartFailedJob (not .Values.highAvailability.enabled) }}
 {{- fail "flink-jobs: restartFailedJob requires highAvailability.enabled (otherwise recovery restores a stale savepoint and duplicates data)" }}
 {{- end }}
+{{- /* Standby JobManagers elect a leader through Kubernetes HA; without it they would each run the job. */ -}}
+{{- if and (gt (int .Values.jobManager.replicas) 1) (not .Values.highAvailability.enabled) }}
+{{- fail "flink-jobs: jobManager.replicas > 1 requires highAvailability.enabled" }}
+{{- end }}
 apiVersion: flink.apache.org/v1beta1
 kind: FlinkDeployment
 metadata:
@@ -34,6 +38,8 @@ spec:
     restart-strategy.type: exponential-delay
     restart-strategy.exponential-delay.initial-backoff: 2s
     restart-strategy.exponential-delay.max-backoff: 60s
+    # Give up on a TaskManager that never registers (e.g. scheduled onto a node that just failed) and request another.
+    resourcemanager.taskmanager-registration.timeout: {{ .Values.taskManager.registrationTimeout }}
     # Restart a job that reached FAILED (e.g. the catalog was down at start-up).
     kubernetes.operator.job.restart.failed: {{ .Values.restartFailedJob | quote }}
     {{- if .Values.metrics.enabled }}
@@ -60,9 +66,22 @@ spec:
     log4j-console.properties: |
       {{- .Files.Get "files/log4j-console.properties" | nindent 6 }}
   jobManager:
+    replicas: {{ .Values.jobManager.replicas }}
     resource:
       memory: {{ .Values.jobManager.memory }}
       cpu: {{ .Values.jobManager.cpu }}
+    {{- if gt (int .Values.jobManager.replicas) 1 }}
+    podTemplate:
+      spec:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: {{ .Values.jobManager.zoneSpread }}
+            labelSelector:
+              matchLabels:
+                app: {{ .Values.name }}
+                component: jobmanager
+    {{- end }}
   taskManager:
     resource:
       memory: {{ .Values.taskManager.memory }}

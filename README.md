@@ -11,6 +11,7 @@
 ![Apache Iceberg](https://img.shields.io/badge/Iceberg-1.12-4E8EE9)
 ![Argo CD](https://img.shields.io/badge/Argo%20CD-3.5.6-EF7B4D?logo=argo&logoColor=white)
 ![Java](https://img.shields.io/badge/Java-21%20%7C%2017-007396?logo=openjdk&logoColor=white)
+[![M8ven Score](https://m8ven.ai/badge/mcp/tiqsclass6-full-cloud-dashboard-1qz06h?v=2ededef2381af07f1761951bbdfc8fee)](https://m8ven.ai/mcp/tiqsclass6-full-cloud-dashboard-1qz06h?s=readme)
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 

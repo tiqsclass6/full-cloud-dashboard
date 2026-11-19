@@ -41,9 +41,18 @@ s3StaticKeys:
 jobManager:
   memory: 1024m
   cpu: 0.5
+  # A leader and a standby (needs highAvailability): if the leader's node fails, the standby takes over in
+  # seconds instead of the job waiting for Kubernetes to evict the pod (5 minutes; docs/chaos/README.md).
+  replicas: 2
+  # Keep the JobManagers in different zones, or one zone outage takes both.
+  zoneSpread: DoNotSchedule
 taskManager:
   memory: 2048m
   cpu: 1
+  # How long a requested TaskManager may take to register before Flink releases it and asks for another (default
+  # 5 min). After a node failure the first replacement can land on the dead node, which Kubernetes has not yet
+  # marked NotReady; with 5 minutes the job then idles that long (zone outage, docs/chaos/README.md).
+  registrationTimeout: 90s
 
 # Failover and FAILED-job recovery resume from the latest checkpoint; required by restartFailedJob.
 highAvailability:

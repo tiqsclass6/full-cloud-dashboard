@@ -1,0 +1,55 @@
+{
+  "experiment": "zone-outage",
+  "run_at": "2026-11-19T03:46:44Z",
+  "fault_seconds": 365,
+  "events_sent": 64850,
+  "retried_batches": 1,
+  "replies_discarded": 0,
+  "ingestion_pods_replaced": 0,
+  "duplicates_dropped_by_flink": 50,
+  "recovery_seconds": 218,
+  "max_consumer_lag": 33700,
+  "max_checkpoint_ms": 156,
+  "alerts_fired": [
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "InfoInhibitor",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "KafkaBrokerDown",
+      "seconds_after_fault_start": 175
+    },
+    {
+      "alert": "FlinkJobNotRunning",
+      "seconds_after_fault_start": 349
+    },
+    {
+      "alert": "KafkaUnderReplicatedPartitions",
+      "seconds_after_fault_start": 366
+    },
+    {
+      "alert": "OpsAgentInvestigationsFailing",
+      "seconds_after_fault_start": 410
+    },
+    {
+      "alert": "AlertmanagerClusterDown",
+      "seconds_after_fault_start": 475
+    }
+  ],
+  "expected_alerts": [
+    "KafkaBrokerDown"
+  ],
+  "forbidden_alerts": [],
+  "iceberg": {
+    "expected": 64850,
+    "found": 64850,
+    "missing": 0,
+    "duplicates": 0
+  },
+  "note": "the paused node ran the Flink JobManager",
+  "passed": true
+}

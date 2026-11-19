@@ -1,55 +1,54 @@
 {
   "experiment": "zone-outage",
-  "run_at": "2026-11-19T03:46:44Z",
-  "fault_seconds": 365,
-  "events_sent": 64850,
-  "retried_batches": 1,
+  "run_at": "2026-11-19T04:35:11Z",
+  "fault_seconds": 373,
+  "events_sent": 63150,
+  "retried_batches": 2,
   "replies_discarded": 0,
   "ingestion_pods_replaced": 0,
-  "duplicates_dropped_by_flink": 50,
-  "recovery_seconds": 218,
-  "max_consumer_lag": 33700,
-  "max_checkpoint_ms": 156,
+  "duplicates_dropped_by_flink": 100,
+  "recovery_seconds": 189,
+  "max_consumer_lag": 13900,
+  "max_checkpoint_ms": 2563,
   "alerts_fired": [
     {
-      "alert": "FlinkCheckpointFailures",
-      "seconds_after_fault_start": 0
+      "alert": "OpsAgentInvestigationsFailing",
+      "seconds_after_fault_start": 1
     },
     {
-      "alert": "InfoInhibitor",
-      "seconds_after_fault_start": 0
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 1
+    },
+    {
+      "alert": "IcebergCompactionOverdue",
+      "seconds_after_fault_start": 178
     },
     {
       "alert": "KafkaBrokerDown",
-      "seconds_after_fault_start": 175
+      "seconds_after_fault_start": 178
     },
     {
-      "alert": "FlinkJobNotRunning",
-      "seconds_after_fault_start": 349
+      "alert": "OpsAgentAlertsDropped",
+      "seconds_after_fault_start": 259
     },
     {
       "alert": "KafkaUnderReplicatedPartitions",
-      "seconds_after_fault_start": 366
-    },
-    {
-      "alert": "OpsAgentInvestigationsFailing",
-      "seconds_after_fault_start": 410
-    },
-    {
-      "alert": "AlertmanagerClusterDown",
-      "seconds_after_fault_start": 475
+      "seconds_after_fault_start": 356
     }
   ],
   "expected_alerts": [
     "KafkaBrokerDown"
   ],
-  "forbidden_alerts": [],
+  "forbidden_alerts": [
+    "FlinkJobNotRunning",
+    "FlinkCheckpointsStalled"
+  ],
   "iceberg": {
-    "expected": 64850,
-    "found": 64850,
+    "expected": 63150,
+    "found": 63150,
     "missing": 0,
     "duplicates": 0
   },
-  "note": "the paused node ran the Flink JobManager",
+  "note": "the paused node ran the leading Flink JobManager; the standby on lakehouse-worker2 had to take over",
   "passed": true
 }

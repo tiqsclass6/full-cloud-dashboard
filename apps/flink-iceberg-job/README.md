@@ -59,4 +59,4 @@ The unit tests cover the decode and evolution rules and the de-duplication opera
 - Hash-map state backend: fine for a 60-minute id set locally, but size it (or move to RocksDB) before AWS.
 - Many small files accumulate (one set per checkpoint); compaction arrives with the PySpark jobs in Phase 4.
 - The job jar is about 185 MB (AWS SDK and Hadoop client bundled).
-- Kubernetes HA is on, with a standby JobManager and a spare TaskManager, each preferably in another zone (ADR 0004, decisions 8 and 9). In the zone-outage experiment no checkpoint completed for about 100 s ([**chaos results**](../../docs/chaos/README.md)).
+- Kubernetes HA is on, with a standby JobManager and a spare TaskManager, each preferably in another zone, and a 20 s heartbeat timeout (ADR 0004, decisions 8 to 10). In the zone-outage experiment no checkpoint completed for 55-100 s, depending on what the failed node ran ([**chaos results**](../../docs/chaos/README.md)).

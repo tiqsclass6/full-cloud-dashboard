@@ -37,7 +37,7 @@ Alerts from `helm/charts/observability/rules/pipeline.yaml`. Dashboard: **Lakeho
 
 **Meaning:** more than 2 restarts in 15 minutes.
 **Impact:** each restart replays from the last checkpoint (no duplicates thanks to exactly-once, but freshness suffers).
-**Diagnose:** the root exception in the JobManager log (`|= "switched from RUNNING to RESTARTING"`, then the `Caused by` lines).
+**Diagnose:** the root exception in the JobManager log (`|= "switched from RUNNING to RESTARTING"`, then the `Caused by` lines). `Heartbeat of TaskManager ... timed out` means a TaskManager did not answer for `heartbeat.timeout` (20 s): its node failed, or it stalled (GC pause, memory pressure). Several of these without a node failure suggest raising `flink-jobs.heartbeat.timeout`.
 **Fix:** depends on the cause; a poison message that cannot be deserialised needs the schema history checked (docs/flink-iceberg.md).
 
 ## **FlinkBackpressureHigh**

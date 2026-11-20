@@ -144,12 +144,20 @@ class ConfluentAvroRowDeserializerTest {
     }
 
     @Test
-    void skipsPoisonRecordsInsteadOfFailing() throws Exception {
+    void reportsPoisonRecordsAsPoison() throws Exception {
         var deserializer = new ConfluentAvroRowDeserializer(registryUrl, IcebergTables.initialSchema());
 
-        assertThat(deserializer.deserialize("not avro".getBytes(StandardCharsets.UTF_8))).isNull();
-        assertThat(deserializer.deserialize(new byte[] {0, 0, 0, 0, 99, 1, 2, 3})).isNull(); // unknown schema id
-        assertThat(deserializer.deserialize(null)).isNull();
+        assertThatThrownBy(() -> deserializer.deserialize("not avro".getBytes(StandardCharsets.UTF_8)))
+                .isInstanceOf(ConfluentAvroRowDeserializer.PoisonRecordException.class);
+        // Unknown schema id: the registry answers 404.
+        assertThatThrownBy(() -> deserializer.deserialize(new byte[] {0, 0, 0, 0, 99, 1, 2, 3}))
+                .isInstanceOf(ConfluentAvroRowDeserializer.PoisonRecordException.class)
+                .hasMessageContaining("404");
+        assertThatThrownBy(() -> deserializer.deserialize(null))
+                .isInstanceOf(ConfluentAvroRowDeserializer.PoisonRecordException.class);
+        // A known schema id followed by truncated Avro.
+        assertThatThrownBy(() -> deserializer.deserialize(new byte[] {0, 0, 0, 0, 1, 2}))
+                .isInstanceOf(ConfluentAvroRowDeserializer.PoisonRecordException.class);
     }
 
     @Test
@@ -191,6 +199,70 @@ class ConfluentAvroRowDeserializerTest {
             exchange.close();
         });
 
-        assertThat(deserializer.deserialize(encode(3, nullableSource, fields))).isNull();
+        assertThatThrownBy(() -> deserializer.deserialize(encode(3, nullableSource, fields)))
+                .isInstanceOf(ConfluentAvroRowDeserializer.PoisonRecordException.class)
+                .hasMessageContaining("required column 'source'");
+    }
+
+    private static RecordLayout lineageLayout() {
+        return RecordLayout.of(IcebergTables.withLineage(IcebergTables.initialSchema()));
+    }
+
+    private static org.apache.kafka.clients.consumer.ConsumerRecord<byte[], byte[]> kafka(int partition, long offset,
+            byte[] value) {
+        return new org.apache.kafka.clients.consumer.ConsumerRecord<>("events.raw", partition, offset,
+                1_700_000_001_000L, org.apache.kafka.common.record.TimestampType.CREATE_TIME, 0, value.length,
+                "host-1".getBytes(StandardCharsets.UTF_8), value, new org.apache.kafka.common.header.internals.RecordHeaders(),
+                java.util.Optional.empty());
+    }
+
+    @Test
+    void addsTheKafkaPartitionOffsetAndTimestampToEachRow() throws Exception {
+        RecordLayout layout = lineageLayout();
+        var decoder = new KafkaRecordDecoder(new ConfluentAvroRowDeserializer(registryUrl,
+                IcebergTables.withLineage(IcebergTables.initialSchema())), layout);
+
+        RowData row = decoder.decode(kafka(4, 1234L, encode(1, V1, baseFields())));
+
+        assertThat(row.getArity()).isEqualTo(layout.arity());
+        assertThat(row.getString(0).toString()).isEqualTo("e-1");
+        assertThat(row.getInt(layout.partition())).isEqualTo(4);
+        assertThat(row.getLong(layout.offset())).isEqualTo(1234L);
+        assertThat(row.getTimestamp(layout.timestamp(), 6).getMillisecond()).isEqualTo(1_700_000_001_000L);
+        assertThat(row.isNullAt(layout.error())).isTrue();
+        assertThat(row.isNullAt(layout.payload())).isTrue();
+    }
+
+    @Test
+    void keepsAnUndecodableRecordWithItsErrorAndBytes() throws Exception {
+        RecordLayout layout = lineageLayout();
+        var decoder = new KafkaRecordDecoder(new ConfluentAvroRowDeserializer(registryUrl,
+                IcebergTables.withLineage(IcebergTables.initialSchema())), layout);
+        byte[] poison = "not avro".getBytes(StandardCharsets.UTF_8);
+
+        RowData row = decoder.decode(kafka(2, 77L, poison));
+
+        assertThat(row.isNullAt(0)).isTrue();
+        assertThat(row.getInt(layout.partition())).isEqualTo(2);
+        assertThat(row.getLong(layout.offset())).isEqualTo(77L);
+        assertThat(row.getString(layout.error()).toString()).contains("not a Confluent-format Avro record");
+        assertThat(row.getBinary(layout.payload())).isEqualTo(poison);
+
+        RowData skipped = SkippedRecords.of(row, layout, SkippedRecords.UNDECODABLE);
+        assertThat(skipped.getInt(0)).isEqualTo(2);
+        assertThat(skipped.getLong(1)).isEqualTo(77L);
+        assertThat(skipped.getString(3).toString()).isEqualTo("undecodable");
+        assertThat(skipped.isNullAt(4)).isTrue();
+        assertThat(skipped.getBinary(7)).isEqualTo(poison);
+    }
+
+    @Test
+    void failsTheReadWhenTheRegistryIsDownSoTheRecordIsReadAgain() throws Exception {
+        RecordLayout layout = lineageLayout();
+        var decoder = new KafkaRecordDecoder(new ConfluentAvroRowDeserializer("http://127.0.0.1:1",
+                IcebergTables.withLineage(IcebergTables.initialSchema())), layout);
+
+        assertThatThrownBy(() -> decoder.decode(kafka(0, 1L, encode(1, V1, baseFields()))))
+                .isInstanceOf(ConfluentAvroRowDeserializer.RegistryUnavailableException.class);
     }
 }

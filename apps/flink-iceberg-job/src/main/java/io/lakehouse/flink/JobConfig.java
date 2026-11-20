@@ -14,6 +14,7 @@ public record JobConfig(
         String schemaRegistryUrl,
         String icebergNamespace,
         String icebergTable,
+        String icebergSkippedTable,
         String catalogImpl,
         Map<String, String> catalogProperties,
         Duration dedupeTtl,
@@ -61,6 +62,8 @@ public record JobConfig(
                 env.getOrDefault("SCHEMA_REGISTRY_URL", "http://apicurio-registry.data.svc:8080/apis/ccompat/v7"),
                 env.getOrDefault("ICEBERG_NAMESPACE", "lakehouse"),
                 env.getOrDefault("ICEBERG_TABLE", "events"),
+                // Every Kafka record the job does not store in the events table: duplicate copies and undecodable records.
+                env.getOrDefault("ICEBERG_SKIPPED_TABLE", "events_skipped"),
                 impl,
                 Map.copyOf(catalog),
                 Duration.ofMinutes(Long.parseLong(env.getOrDefault("DEDUPE_TTL_MINUTES", "60"))),

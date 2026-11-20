@@ -11,17 +11,26 @@ import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.util.Collector;
 
-/** Drops events whose event_id was already seen within the TTL (client retries duplicate the input). */
+/**
+ * Drops events whose event_id was already seen within the TTL (client retries duplicate the input). With a
+ * layout, each dropped copy goes to the {@link SkippedRecords#TAG} side output, so its Kafka offset is accounted for.
+ */
 public final class Deduplicator extends KeyedProcessFunction<String, RowData, RowData> {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 
     private final Duration ttl;
+    private final RecordLayout layout;
     private transient ValueState<Boolean> seen;
     private transient Counter duplicatesDropped;
 
     public Deduplicator(Duration ttl) {
+        this(ttl, null);
+    }
+
+    public Deduplicator(Duration ttl, RecordLayout layout) {
         this.ttl = ttl;
+        this.layout = layout;
     }
 
     @Override
@@ -44,6 +53,9 @@ public final class Deduplicator extends KeyedProcessFunction<String, RowData, Ro
             out.collect(row);
         } else {
             duplicatesDropped.inc();
+            if (layout != null) {
+                context.output(SkippedRecords.TAG, SkippedRecords.of(row, layout, SkippedRecords.DUPLICATE));
+            }
         }
     }
 

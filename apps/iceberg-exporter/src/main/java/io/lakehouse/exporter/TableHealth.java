@@ -2,6 +2,8 @@ package io.lakehouse.exporter;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Map;
+import java.util.TreeMap;
 import org.apache.iceberg.DataOperations;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Snapshot;
@@ -9,7 +11,11 @@ import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.CloseableIterable;
 
-/** One table at its current snapshot. Timestamps are epoch ms, or -1 when the event has not happened yet. */
+/**
+ * One table at its current snapshot. Timestamps are epoch ms, or -1 when the event has not happened yet.
+ * {@code properties} holds the numeric {@code lakehouse.*} keys of the current snapshot's summary, which jobs
+ * write to report results (the reconciliation job: missing records and more).
+ */
 public record TableHealth(
         int snapshots,
         long dataFiles,
@@ -19,9 +25,21 @@ public record TableHealth(
         long sizeBytes,
         int manifests,
         long lastCommitMs,
-        long lastCompactionMs) {
+        long lastCompactionMs,
+        Map<String, Double> properties) {
 
+    static final String PROPERTY_PREFIX = "lakehouse.";
     static final TableHealth EMPTY = new TableHealth(0, 0, 0, 0, 0, 0, 0, -1, -1);
+
+    public TableHealth {
+        properties = Map.copyOf(properties);
+    }
+
+    public TableHealth(int snapshots, long dataFiles, long smallDataFiles, long deleteFiles, long records,
+            long sizeBytes, int manifests, long lastCommitMs, long lastCompactionMs) {
+        this(snapshots, dataFiles, smallDataFiles, deleteFiles, records, sizeBytes, manifests, lastCommitMs,
+                lastCompactionMs, Map.of());
+    }
 
     /** Reads the table's metadata and manifests (no data files) and computes its health. */
     public static TableHealth inspect(Table table, long smallFileBytes) {
@@ -59,7 +77,25 @@ public record TableHealth(
         }
         int manifests = current.allManifests(table.io()).size();
         return new TableHealth(snapshots, dataFiles, small, deletes, records, bytes, manifests,
-                current.timestampMillis(), lastCompaction);
+                current.timestampMillis(), lastCompaction, numericProperties(current.summary()));
+    }
+
+    /** The {@code lakehouse.*} summary keys whose values are numbers; other keys are Iceberg's own. */
+    static Map<String, Double> numericProperties(Map<String, String> summary) {
+        Map<String, Double> out = new TreeMap<>();
+        if (summary == null) {
+            return out;
+        }
+        summary.forEach((key, value) -> {
+            if (key.startsWith(PROPERTY_PREFIX)) {
+                try {
+                    out.put(key, Double.parseDouble(value));
+                } catch (NumberFormatException e) {
+                    // not a number: not exported
+                }
+            }
+        });
+        return out;
     }
 
     /** A {@code replace} snapshot that removed data files (rewrite_manifests also commits {@code replace}). */

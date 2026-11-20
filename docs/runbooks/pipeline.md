@@ -33,12 +33,19 @@ Alerts from `helm/charts/observability/rules/pipeline.yaml`. Dashboard: **Lakeho
 **Impact:** if failures keep happening, the job will eventually restart, potentially delaying data visibility in Iceberg.
 **Diagnose and fix:** as FlinkCheckpointsStalled. A single failure during a broker restart or node drain is expected.
 
+## **FlinkRecordsUndecodable**
+
+**Meaning:** Flink read Kafka records it could not turn into rows in the last 15 minutes: not Confluent-format Avro, a schema id the registry does not know (404), or a required column missing.
+**Impact:** those events are not in `events`. Nothing is lost: each one is in `lakehouse.lakehouse.events_skipped` with `reason = 'undecodable'`, its partition, offset, Kafka timestamp, the error and the raw bytes (`payload`), and the offset reconciliation counts it as accounted for.
+**Diagnose:** `SELECT kafka_partition, kafka_offset, kafka_timestamp, error FROM lakehouse.lakehouse.events_skipped WHERE reason = 'undecodable' ORDER BY kafka_timestamp DESC`; the TaskManager log has one `Undecodable record at` line per record. Only the ingestion service may write to `events.raw` (Kafka ACLs), so check it first: a deploy with a schema the registry rejected or deleted, or a client that bypassed the Avro serializer.
+**Fix:** fix the producer or restore the schema. Then send the events again through the ingestion API with their original `event_id` (the source still has them, or decode `payload` once its schema exists). There is no automatic replay; the rows stay in `events_skipped` as the record of what happened.
+
 ## **FlinkJobRestarting**
 
 **Meaning:** more than 2 restarts in 15 minutes.
 **Impact:** each restart replays from the last checkpoint (no duplicates thanks to exactly-once, but freshness suffers).
 **Diagnose:** the root exception in the JobManager log (`|= "switched from RUNNING to RESTARTING"`, then the `Caused by` lines). `Heartbeat of TaskManager ... timed out` means a TaskManager did not answer for `heartbeat.timeout` (20 s): its node failed, or it stalled (GC pause, memory pressure). Several of these without a node failure suggest raising `flink-jobs.heartbeat.timeout`.
-**Fix:** depends on the cause; a poison message that cannot be deserialised needs the schema history checked (docs/flink-iceberg.md).
+**Fix:** depends on the cause. A record that cannot be decoded does not restart the job (FlinkRecordsUndecodable); an unreachable schema registry does, on purpose, so that a good record is not skipped.
 
 ## **FlinkBackpressureHigh**
 

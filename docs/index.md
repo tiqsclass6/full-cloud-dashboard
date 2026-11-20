@@ -9,12 +9,12 @@ Documentation for a Kubernetes-native streaming lakehouse: Kafka (Strimzi), Flin
 
 ![Platform architecture](diagrams/architecture.png)
 
-| **Section**       | **Pages**                                                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Start here**    | [**Lab runbook**](lab/RUNBOOK.md), [**diagrams and workflows**](diagrams/README.md)                                                              |
-| **Decisions**     | [**ADR 0001**](architecture-decisions/0001-local-first-kind-with-ephemeral-eks.md) to [**ADR 0010**](architecture-decisions/0010-agentic-ops.md) |
-| **Data pipeline** | [**Flink to Iceberg results**](flink-iceberg.md), [**Spark results**](spark-iceberg.md), [**JVM performance**](performance/README.md)            |
-| **Operations**    | [**Observability**](observability.md), [**runbooks**](runbooks/), [**chaos experiments**](chaos/README.md), [**ops agent**](ai-ops.md)           |
-| **AWS**           | [**Running the AWS environment**](aws.md)                                                                                                        |
-| **Security**      | [**Controls, tests and reporting**](../SECURITY.md), [**NIST SP 800-53 mapping**](security/control-mapping.md)                                   |
-| **Project**       | [**Contributing**](../CONTRIBUTING.md), [**code of conduct**](../CODE_OF_CONDUCT.md)                                                             |
+| **Section**       | **Pages**                                                                                                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Start here**    | [**Lab runbook**](lab/RUNBOOK.md), [**diagrams and workflows**](diagrams/README.md)                                                                                              |
+| **Decisions**     | [**ADR 0001**](architecture-decisions/0001-local-first-kind-with-ephemeral-eks.md) to [**ADR 0011**](architecture-decisions/0011-every-offset-accounted-for.md)                  |
+| **Data pipeline** | [**Flink to Iceberg results**](flink-iceberg.md), [**Spark results**](spark-iceberg.md), [**JVM performance**](performance/README.md), [**data integrity**](integrity/README.md) |
+| **Operations**    | [**Observability**](observability.md), [**runbooks**](runbooks/), [**chaos experiments**](chaos/README.md), [**ops agent**](ai-ops.md)                                           |
+| **AWS**           | [**Running the AWS environment**](aws.md)                                                                                                                                        |
+| **Security**      | [**Controls, tests and reporting**](../SECURITY.md), [**NIST SP 800-53 mapping**](security/control-mapping.md)                                                                   |
+| **Project**       | [**Contributing**](../CONTRIBUTING.md), [**code of conduct**](../CODE_OF_CONDUCT.md)                                                                                             |

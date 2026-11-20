@@ -210,7 +210,10 @@ reset_pipeline() {
       | grep -qx events.raw || break
     sleep 2
   done
-  curl -s -o /dev/null -X DELETE "http://localhost:8181/v1/namespaces/lakehouse/tables/events?purgeRequested=true" || true
+  # The new topic's offsets start at 0 again, so the tables keyed by offset go too.
+  for t in events events_skipped events_reconciliation; do
+    curl -s -o /dev/null -X DELETE "http://localhost:8181/v1/namespaces/lakehouse/tables/${t}?purgeRequested=true" || true
+  done
   gitops_resume
   kc -n argocd annotate application "${GITOPS_APP}" argocd.argoproj.io/refresh=normal --overwrite >/dev/null
   for _ in $(seq 1 60); do

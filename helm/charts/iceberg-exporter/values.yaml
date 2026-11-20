@@ -10,7 +10,7 @@ serviceAccount:
   name: iceberg-exporter
   annotations: {}
 
-tables: [lakehouse.events, lakehouse.events_hourly]
+tables: [lakehouse.events, lakehouse.events_hourly, lakehouse.events_skipped, lakehouse.events_reconciliation]
 intervalSeconds: 60
 smallFileBytes: 33554432          # 32 MiB: a quarter of the compaction target, as in the Spark job
 

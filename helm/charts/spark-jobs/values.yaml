@@ -39,3 +39,8 @@ schedules:
     schedule: "10 * * * *"
     entry: aggregate
     args: ["--lookback-hours", "3"]
+  events-reconcile:
+    description: "Hourly at :20: every Kafka offset of the last 24 hours (up to 15 minutes ago) must be in events or events_skipped exactly once; results in events_reconciliation, alerts on any gap."
+    schedule: "20 * * * *"
+    entry: reconcile
+    args: ["--lookback-hours", "24", "--settle-minutes", "15", "--expected-interval-minutes", "60"]

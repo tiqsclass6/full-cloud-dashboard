@@ -56,17 +56,18 @@ A company may want to stream app or device events into a data lake that analysts
 
 Numbers from recorded runs. Each was run once unless stated; the linked pages say what each test does and does not prove.
 
-| **Area**                     | **Result**                                                                                                                                                 | **Details**                                      |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| **Exactly once**             | 24,000 events with 3,400 duplicate sends and re-sends, a TaskManager kill and a savepoint restore: **24,000 rows, 24,000 distinct**                        | [**flink-iceberg.md**](docs/flink-iceberg.md)    |
-| **Chaos**                    | Broker isolation, TaskManager kill, 400 ms Kafka latency, a paused node, ingestion pods killed with replies lost: **323,300 events, 0 lost, 0 duplicated** | [**chaos/README.md**](docs/chaos/README.md)      |
-| **Iceberg maintenance**      | 70 small files to 1, 56 snapshots to 1, median full scan 1.68 s to 0.48 s; compaction under 5,000 events/s with **3,501,500 = 3,501,500**                  | [**spark-iceberg.md**](docs/spark-iceberg.md)    |
-| **JVM performance**          | 30,000 events/s, 0 errors, p99 23 ms; an Avro encoder change cut allocation 19%; G1 vs generational ZGC compared with JFR                                  | [**perf/README.md**](docs/performance/README.md) |
-| **AWS end to end**           | 5,000 events through ingestion, Kafka, Flink and Iceberg on S3/Glue: **Athena counted 5,000 rows, 5,000 distinct**                                         | [**aws.md**](docs/aws.md)                        |
-| **Security on EKS**          | Kafka mTLS and ACLs 10/10, network policies 9/9, admission 15/15; signed image admitted, unsigned refused                                                  | [**SECURITY.md**](SECURITY.md)                   |
-| **Observability**            | 27 alerts with runbooks and promtool unit tests; 57 of 57 dashboard queries return data; an alert fired, its runbook fixed it, it resolved                 | [**observability.md**](docs/observability.md)    |
-| **Agentic ops (guardrails)** | 37 of 37 guardrail checks; 13 MCP tools reached through Amazon Bedrock AgentCore Gateway inside the VPC (1.38 s per call from the Runtime)                 | [**ai-ops.md**](docs/ai-ops.md)                  |
-| **Teardown**                 | `aws-down` releases every volume and load balancer before `terraform destroy`, then checks for leftovers                                                   | [**aws.md**](docs/aws.md)                        |
+| **Area**                     | **Result**                                                                                                                                                                  | **Details**                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **Exactly once**             | 24,000 events with 3,400 duplicate sends and re-sends, a TaskManager kill and a savepoint restore: **24,000 rows, 24,000 distinct**                                         | [**flink-iceberg.md**](docs/flink-iceberg.md)       |
+| **Chaos**                    | Broker isolation, TaskManager kill, 400 ms Kafka latency, a paused node, ingestion pods killed with replies lost: **323,300 events, 0 lost, 0 duplicated**                  | [**chaos/README.md**](docs/chaos/README.md)         |
+| **Iceberg maintenance**      | 70 small files to 1, 56 snapshots to 1, median full scan 1.68 s to 0.48 s; compaction under 5,000 events/s with **3,501,500 = 3,501,500**                                   | [**spark-iceberg.md**](docs/spark-iceberg.md)       |
+| **JVM performance**          | 30,000 events/s, 0 errors, p99 23 ms; an Avro encoder change cut allocation 19%; G1 vs generational ZGC compared with JFR                                                   | [**perf/README.md**](docs/performance/README.md)    |
+| **Data integrity**           | 3,000 events, 300 retried copies, 3 non-Avro records: **3,303 Kafka offsets, each in exactly one table**; one row deleted on purpose was found by its offset and alerted on | [**integrity/README.md**](docs/integrity/README.md) |
+| **AWS end to end**           | 5,000 events through ingestion, Kafka, Flink and Iceberg on S3/Glue: **Athena counted 5,000 rows, 5,000 distinct**                                                          | [**aws.md**](docs/aws.md)                           |
+| **Security on EKS**          | Kafka mTLS and ACLs 10/10, network policies 9/9, admission 15/15; signed image admitted, unsigned refused                                                                   | [**SECURITY.md**](SECURITY.md)                      |
+| **Observability**            | 31 alerts with runbooks and promtool unit tests; 57 of 57 dashboard queries return data; an alert fired, its runbook fixed it, it resolved                                  | [**observability.md**](docs/observability.md)       |
+| **Agentic ops (guardrails)** | 37 of 37 guardrail checks; 13 MCP tools reached through Amazon Bedrock AgentCore Gateway inside the VPC (1.38 s per call from the Runtime)                                  | [**ai-ops.md**](docs/ai-ops.md)                     |
+| **Teardown**                 | `aws-down` releases every volume and load balancer before `terraform destroy`, then checks for leftovers                                                                    | [**aws.md**](docs/aws.md)                           |
 
 ### **How it works**
 
@@ -92,7 +93,7 @@ How the requirements of a senior staff data-platform role map to this repository
 
 | **Requirement**                                | **Where**                                                                                                                          | **Evidence**                                                                                                                 |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Distributed systems design**                 | [**ADRs 0001-0010**](docs/architecture-decisions/), [**architecture**](docs/diagrams/README.md)                                    | Each decision with its alternatives and consequences; failure modes tested by chaos experiments                              |
+| **Distributed systems design**                 | [**ADRs 0001-0011**](docs/architecture-decisions/), [**architecture**](docs/diagrams/README.md)                                    | Each decision with its alternatives and consequences; failure modes tested by chaos experiments                              |
 | **Java, JVM internals, GC, profiling**         | [**`apps/ingestion-service`**](apps/ingestion-service/README.md), [**`apps/flink-iceberg-job`**](apps/flink-iceberg-job/README.md) | JFR profiles, G1 vs generational ZGC, an allocation hot spot found and removed ([**perf**](docs/performance/README.md))      |
 | **Concurrency, networking, OS**                | Ingestion service: virtual threads, bounded in-flight work (429), JDK HTTP server; open-loop load generator                        | Latency measured from intended send time; [**ADR 0003**](docs/architecture-decisions/0003-ingestion-service-design.md)       |
 | **Kafka at scale, HA**                         | [**`helm/charts/kafka-cluster`**](helm/charts/kafka-cluster): Strimzi, KRaft, 3 zones, RF=3, min ISR 2, rack awareness             | Broker isolation and zone outage without data loss ([**chaos**](docs/chaos/README.md))                                       |
@@ -188,7 +189,7 @@ full-cloud-dashboard-project/
 │   └── spark-jobs/               # PySpark: Iceberg maintenance and hourly aggregates
 ├── chaos/experiments/            # Chaos Mesh faults: broker isolation, latency, pod kill
 ├── docs/                         # Documentation (index.md)
-│   ├── architecture-decisions/   # ADRs 0001-0010
+│   ├── architecture-decisions/   # ADRs 0001-0011
 │   ├── chaos/                    # Chaos experiment results
 │   ├── diagrams/                 # Architecture diagrams and workflow infographics
 │   ├── lab/                      # Lab runbook (RUNBOOK.md) and screenshots (images/)
@@ -254,12 +255,13 @@ The full lab, with sign-ins, expected output and screenshot instructions, is [**
 
 2. **Tour the UIs.** Grafana (`admin` / `admin-local-dev`) has five Lakehouse dashboards; Prometheus shows every scrape job up (`min by (job) (up)`); Alertmanager shows only `Watchdog`; the Avro schema is at `http://localhost:8085/apis/ccompat/v7/subjects/events.raw-value/versions/latest`.
 
-3. **Send events, prove exactly once, evolve the schema.** The last two commands are destructive: they reset the topic and the table.
+3. **Send events, prove exactly once, evolve the schema.** The exactly-once test and the schema demo are destructive: they reset the topic and the tables.
 
    ```bash
    make local-loadtest RATE=5000 DURATION=60
    make local-test-exactly-once        # 3 waves, a TaskManager kill, a savepoint restore, 1,000 re-sends
    make local-demo-schema-evolution    # adds an optional column from producer to table without downtime
+   make local-test-integrity           # every Kafka offset accounted for; a deleted row is found and alerted on
    ```
 
 4. **Run Spark maintenance and aggregates.** Send some load first so there are small files to compact.

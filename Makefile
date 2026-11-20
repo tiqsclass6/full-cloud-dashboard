@@ -1,7 +1,7 @@
 SHELL := bash
 SCRIPTS := local/scripts
 
-.PHONY: help local-up local-down local-smoke local-ports local-status local-deploy-ingest local-loadtest local-perf local-deploy-flink local-test-exactly-once local-demo-schema-evolution local-test-recovery local-repair-duplicates local-deploy-spark local-spark-test local-spark-maintenance local-spark-aggregate local-spark-schedules gitops-push gitops-bootstrap gitops-status helm-check docs-format docs-check tf-fmt tf-validate aws-init aws-plan aws-apply aws-up aws-gitops-push aws-smoke aws-down security-scan security-test aws-security-test rules-test dashboards diagrams chaos ai-test ai-deploy ai-creds ai-ops-test ai-eval ai-lock aws-agentcore aws-ai-test
+.PHONY: help local-up local-down local-smoke local-ports local-status local-deploy-ingest local-loadtest local-perf local-deploy-flink local-test-exactly-once local-demo-schema-evolution local-test-recovery local-test-integrity local-spark-reconcile local-repair-duplicates local-deploy-spark local-spark-test local-spark-maintenance local-spark-aggregate local-spark-schedules gitops-push gitops-bootstrap gitops-status helm-check docs-format docs-check tf-fmt tf-validate aws-init aws-plan aws-apply aws-up aws-gitops-push aws-smoke aws-down security-scan security-test aws-security-test rules-test dashboards diagrams chaos ai-test ai-deploy ai-creds ai-ops-test ai-eval ai-lock aws-agentcore aws-ai-test
 
 help:
 	@echo "Local platform (kind):"
@@ -19,12 +19,14 @@ help:
 	@echo "  make local-test-exactly-once        destructive: resets topic+table, injects failures, verifies"
 	@echo "  make local-demo-schema-evolution    add a column end to end"
 	@echo "  make local-test-recovery            catalog outage + JobManager loss; verifies no loss or duplicates"
+	@echo "  make local-test-integrity           undecodable records kept + alerted; a deleted row found by reconcile + alerted"
 	@echo "  make local-repair-duplicates        runbook: suspend job, dedupe + compact, resume, verify"
 	@echo "Spark jobs (needs the cluster and Flink data):"
 	@echo "  make local-spark-test               pytest suite inside the Spark image (no cluster needed)"
 	@echo "  make local-deploy-spark             build the Spark image and load it into kind"
 	@echo "  make local-spark-maintenance        compact + manifests + expire + orphans, with stats"
 	@echo "  make local-spark-aggregate          hourly aggregates (events_hourly)"
+	@echo "  make local-spark-reconcile          offset reconciliation of the last 24 h (events_reconciliation)"
 	@echo "  make local-spark-schedules          show the scheduled jobs (defined in helm/charts/spark-jobs)"
 	@echo "GitOps and Helm:"
 	@echo "  make gitops-push                    publish the working tree to the in-cluster Gitea (Argo CD syncs it)"
@@ -99,6 +101,9 @@ local-spark-test:
 local-test-recovery:
 	bash $(SCRIPTS)/flink-recovery-test.sh
 
+local-test-integrity:
+	bash $(SCRIPTS)/integrity-drill.sh
+
 local-repair-duplicates:
 	bash $(SCRIPTS)/repair-duplicates.sh
 
@@ -110,6 +115,9 @@ local-spark-maintenance:
 
 local-spark-aggregate:
 	bash $(SCRIPTS)/spark-run.sh events-aggregate aggregate --lookback-hours 24
+
+local-spark-reconcile:
+	bash $(SCRIPTS)/spark-run.sh events-reconcile reconcile --lookback-hours 24 --settle-minutes 0
 
 local-spark-schedules:
 	kubectl --context kind-lakehouse -n apps get scheduledsparkapplications

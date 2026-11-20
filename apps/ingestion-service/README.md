@@ -84,6 +84,6 @@ make local-perf LABEL=run1 GC=g1  # JFR-profiled single-replica run (see docs/pe
 `load-generator` (command `loadgen`) is an open-loop generator (`--rate --duration --warmup --batch --workers --sources`) that measures latency from each request's intended send time to avoid coordinated omission.
 
 ## **Known limits**
-- Invalid events are rejected with 400 and not stored; there is no dead-letter path yet (the `events.dlq` topic exists for it).
+- Invalid events are rejected with 400 and not stored; the client gets the reason and keeps the event (the `events.dlq` topic exists but nothing writes to it). Records that pass validation here but cannot be decoded by Flink are kept in `events_skipped` ([**ADR 0011**](../../docs/architecture-decisions/0011-every-offset-accounted-for.md)).
 - No authentication on the ingest port. Default-deny network policies limit which namespaces can reach it; an authenticated API layer (planned with Cognito) is not built.
 - The container image uses a JDK base for `jcmd`/JFR. A JRE image with an ephemeral debug container is the production choice.

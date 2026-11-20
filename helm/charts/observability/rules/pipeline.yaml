@@ -43,6 +43,16 @@ groups:
           summary: Flink checkpoints are failing
           description: "{{ $value | humanize }} checkpoint(s) failed in the last 10 minutes."
           runbook_url: docs/runbooks/pipeline.md#flinkcheckpointfailures
+      - alert: FlinkRecordsUndecodable
+        # The Kafka source registers the decoder's counter in a "deserializer" group.
+        expr: |
+          sum(increase(flink_taskmanager_job_task_operator_deserializer_deserializationErrors{job_name="events_to_iceberg"}[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Flink could not decode {{ $value | humanize }} Kafka record(s) in the last 15 minutes
+          description: They are kept with their bytes and the error in events_skipped (reason undecodable), not in events, until they are fixed and sent again.
+          runbook_url: docs/runbooks/pipeline.md#flinkrecordsundecodable
       - alert: FlinkJobRestarting
         expr: |
           increase(flink_jobmanager_job_numRestarts{job_name="events_to_iceberg"}[15m]) > 2

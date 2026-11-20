@@ -2,6 +2,7 @@ package io.lakehouse.flink;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,26 +16,22 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.DecoderFactory;
-import org.apache.flink.api.common.serialization.DeserializationSchema;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.metrics.Counter;
 import org.apache.flink.table.data.GenericMapData;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.data.TimestampData;
-import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
-import org.apache.iceberg.flink.FlinkSchemaUtil;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/** Confluent-wire-format Avro to RowData in the table layout; fields map by name, missing columns become null. */
-public final class ConfluentAvroRowDeserializer implements DeserializationSchema<RowData> {
+/**
+ * Confluent-wire-format Avro to RowData in the table layout; fields map by name, missing columns become null.
+ * A record that cannot become a row throws {@link PoisonRecordException}; an unreachable registry throws
+ * {@link RegistryUnavailableException} instead, because that record is fine and must be read again.
+ */
+public final class ConfluentAvroRowDeserializer implements Serializable {
 
-    private static final long serialVersionUID = 1L;
-    private static final Logger LOG = LoggerFactory.getLogger(ConfluentAvroRowDeserializer.class);
+    private static final long serialVersionUID = 2L;
     private static final byte MAGIC_BYTE = 0;
 
     private final String registryUrl;
@@ -43,17 +40,14 @@ public final class ConfluentAvroRowDeserializer implements DeserializationSchema
     private transient Map<Integer, Schema> writerSchemas;
     private transient HttpClient http;
     private transient ObjectMapper mapper;
-    private transient Counter errors;
 
     public ConfluentAvroRowDeserializer(String registryUrl, org.apache.iceberg.Schema tableSchema) {
         this.registryUrl = registryUrl.endsWith("/") ? registryUrl.substring(0, registryUrl.length() - 1) : registryUrl;
         this.tableSchema = tableSchema;
     }
 
-    @Override
-    public void open(InitializationContext context) {
-        init();
-        errors = context.getMetricGroup().counter("deserializationErrors");
+    public org.apache.iceberg.Schema tableSchema() {
+        return tableSchema;
     }
 
     private void init() {
@@ -62,30 +56,27 @@ public final class ConfluentAvroRowDeserializer implements DeserializationSchema
         mapper = new ObjectMapper();
     }
 
-    @Override
+    /** Decodes into a row of the table layout. */
     public RowData deserialize(byte[] message) throws IOException {
+        return decode(message, tableSchema.columns().size());
+    }
+
+    /** Decodes into a row of {@code arity} fields: the table columns first, the rest left null for the caller. */
+    public GenericRowData decode(byte[] message, int arity) throws IOException {
         if (writerSchemas == null) {
             init();
         }
+        if (message == null || message.length < 6 || message[0] != MAGIC_BYTE) {
+            throw new PoisonRecordException("not a Confluent-format Avro record", null);
+        }
+        int schemaId = ByteBuffer.wrap(message, 1, 4).getInt();
+        Schema writer = writerSchema(schemaId);
         try {
-            if (message == null || message.length < 6 || message[0] != MAGIC_BYTE) {
-                throw new IOException("not a Confluent-format Avro record");
-            }
-            int schemaId = ByteBuffer.wrap(message, 1, 4).getInt();
-            Schema writer = writerSchema(schemaId);
             GenericRecord record = new GenericDatumReader<GenericRecord>(writer)
                     .read(null, DecoderFactory.get().binaryDecoder(message, 5, message.length - 5, null));
-            return toRow(record);
-        } catch (RegistryUnavailableException e) {
-            // Skipping would commit the offset of a good record; failing restarts from the checkpoint.
-            throw e;
+            return toRow(record, arity);
         } catch (IOException | RuntimeException e) {
-            // A poison record must not crash-loop the job: count and log it (dead-letter topic: see README).
-            if (errors != null) {
-                errors.inc();
-            }
-            LOG.warn("Skipping undecodable record: {}", e.toString());
-            return null;
+            throw new PoisonRecordException(e.toString(), e);
         }
     }
 
@@ -111,10 +102,15 @@ public final class ConfluentAvroRowDeserializer implements DeserializationSchema
             throw new RegistryUnavailableException("schema registry returned HTTP " + status + " for id " + id, null);
         }
         if (status != 200) {
-            // 404 and other client errors: a poison record.
-            throw new IOException("schema registry returned HTTP " + status + " for id " + id);
+            // 404 and other client errors: the record names a schema that does not exist.
+            throw new PoisonRecordException("schema registry returned HTTP " + status + " for id " + id, null);
         }
-        Schema schema = new Schema.Parser().parse(mapper.readTree(response.body()).get("schema").asText());
+        Schema schema;
+        try {
+            schema = new Schema.Parser().parse(mapper.readTree(response.body()).get("schema").asText());
+        } catch (RuntimeException e) {
+            throw new PoisonRecordException("unparseable schema " + id + ": " + e, e);
+        }
         writerSchemas.put(id, schema);
         return schema;
     }
@@ -128,10 +124,19 @@ public final class ConfluentAvroRowDeserializer implements DeserializationSchema
         }
     }
 
+    /** The record itself cannot become a row (not Avro, unknown schema, a required column missing). */
+    static final class PoisonRecordException extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        PoisonRecordException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     /** Maps an Avro record onto the table's columns by name; absent fields become null. */
-    RowData toRow(GenericRecord record) {
+    GenericRowData toRow(GenericRecord record, int arity) {
         List<Types.NestedField> columns = tableSchema.columns();
-        GenericRowData row = new GenericRowData(columns.size());
+        GenericRowData row = new GenericRowData(arity);
         for (int i = 0; i < columns.size(); i++) {
             Types.NestedField column = columns.get(i);
             Schema.Field field = record.getSchema().getField(column.name());
@@ -164,15 +169,5 @@ public final class ConfluentAvroRowDeserializer implements DeserializationSchema
             }
             default -> throw new UnsupportedOperationException("unsupported column type " + type);
         };
-    }
-
-    @Override
-    public boolean isEndOfStream(RowData nextElement) {
-        return false;
-    }
-
-    @Override
-    public TypeInformation<RowData> getProducedType() {
-        return InternalTypeInfo.of(FlinkSchemaUtil.convert(tableSchema));
     }
 }

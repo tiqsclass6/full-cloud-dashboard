@@ -6,19 +6,20 @@ Inspects the lakehouse's Iceberg tables on a fixed interval and serves their hea
 
 All labelled `table="namespace.name"`. Timestamps are epoch seconds and `NaN` until the event has happened; alerts compute ages with `time() - ...`.
 
-| **Metric**                                              | **Meaning**                                                                  |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| **`iceberg_table_up`**                                  | 1 if the last inspection succeeded                                           |
-| **`iceberg_table_snapshots`**                           | Snapshots in the metadata (grows until the Spark job expires them)           |
-| **`iceberg_table_data_files`**                          | Data files in the current snapshot                                           |
-| **`iceberg_table_small_data_files`**                    | Data files below `SMALL_FILE_BYTES` (compaction candidates)                  |
-| **`iceberg_table_delete_files`**                        | Delete files in the current snapshot                                         |
-| **`iceberg_table_records`, `iceberg_table_size_bytes`** | Rows and bytes in the current snapshot                                       |
-| **`iceberg_table_manifests`**                           | Manifest files in the current snapshot                                       |
-| **`iceberg_table_last_commit_timestamp_seconds`**       | Time of the current snapshot: data freshness                                 |
-| **`iceberg_table_last_compaction_timestamp_seconds`**   | Time of the newest compaction (a `replace` snapshot that removed data files) |
-| **`iceberg_exporter_inspections_total{result}`**        | Inspections, by success or failure                                           |
-| **`iceberg_exporter_inspection_duration_seconds`**      | Time to inspect a table                                                      |
+| **Metric**                                              | **Meaning**                                                                                                                                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`iceberg_table_up`**                                  | 1 if the last inspection succeeded                                                                                                                                                                                    |
+| **`iceberg_table_snapshots`**                           | Snapshots in the metadata (grows until the Spark job expires them)                                                                                                                                                    |
+| **`iceberg_table_data_files`**                          | Data files in the current snapshot                                                                                                                                                                                    |
+| **`iceberg_table_small_data_files`**                    | Data files below `SMALL_FILE_BYTES` (compaction candidates)                                                                                                                                                           |
+| **`iceberg_table_delete_files`**                        | Delete files in the current snapshot                                                                                                                                                                                  |
+| **`iceberg_table_records`, `iceberg_table_size_bytes`** | Rows and bytes in the current snapshot                                                                                                                                                                                |
+| **`iceberg_table_manifests`**                           | Manifest files in the current snapshot                                                                                                                                                                                |
+| **`iceberg_table_last_commit_timestamp_seconds`**       | Time of the current snapshot: data freshness                                                                                                                                                                          |
+| **`iceberg_table_last_compaction_timestamp_seconds`**   | Time of the newest compaction (a `replace` snapshot that removed data files)                                                                                                                                          |
+| **`iceberg_table_snapshot_property`**                   | Each numeric `lakehouse.*` key of the current snapshot's summary, label `property`; jobs write them to report results (the reconciliation: `lakehouse.missing` and others). A key the newest snapshot lacks reads NaN |
+| **`iceberg_exporter_inspections_total{result}`**        | Inspections, by success or failure                                                                                                                                                                                    |
+| **`iceberg_exporter_inspection_duration_seconds`**      | Time to inspect a table                                                                                                                                                                                               |
 
 A failed inspection sets `iceberg_table_up` to 0 and keeps the last known values; one failing table never stops the others.
 

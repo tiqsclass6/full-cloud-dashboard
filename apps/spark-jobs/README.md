@@ -2,10 +2,11 @@
 
 Batch jobs that keep the lakehouse healthy and derive data from it. They run on Kubernetes as `SparkApplication`s (Kubeflow Spark operator), read and write Iceberg through the REST catalog, and print one `SUMMARY {...}` JSON line per run.
 
-| **Job**              | **Entry point**       | **Purpose**                                                                                                                                                      |
-| -------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Maintenance**      | `jobs/maintenance.py` | Compaction (`rewrite_data_files`, bin-pack), manifest rewrite, snapshot expiry, orphan file removal, with before/after statistics and an optional scan benchmark |
-| **Hourly aggregate** | `jobs/aggregate.py`   | Incremental per-hour, per-source, per-type statistics into `events_hourly` (count, sum, min, max, average, approximate p95)                                      |
+| **Job**              | **Entry point**       | **Purpose**                                                                                                                                                                                                        |
+| -------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Maintenance**      | `jobs/maintenance.py` | Compaction (`rewrite_data_files`, bin-pack), manifest rewrite, snapshot expiry, orphan file removal, with before/after statistics and an optional scan benchmark                                                   |
+| **Hourly aggregate** | `jobs/aggregate.py`   | Incremental per-hour, per-source, per-type statistics into `events_hourly` (count, sum, min, max, average, approximate p95)                                                                                        |
+| **Reconcile**        | `jobs/reconcile.py`   | Every Kafka offset in the window must be in `events` or `events_skipped` exactly once; results into `events_reconciliation` ([**ADR 0011**](../../docs/architecture-decisions/0011-every-offset-accounted-for.md)) |
 
 Design reasoning: [**ADR 0005**](../../docs/architecture-decisions/0005-spark-maintenance-and-aggregates.md). Measured results: [**docs/spark-iceberg.md**](../../docs/spark-iceberg.md).
 
@@ -46,6 +47,7 @@ bash local/scripts/spark-run.sh <name> aggregate --start 2026-10-28T00:00 --end 
 | **`events-compaction`**       | hourly at :00      | compact + manifests, target 128 MiB                                    |
 | **`events-expire`**           | daily 03:30        | expire (older than 72 h, keep at least 10) + orphans (older than 72 h) |
 | **`events-hourly-aggregate`** | hourly at :10      | last 3 hours                                                           |
+| **`events-reconcile`**        | hourly at :20      | offsets of the last 24 hours, up to 15 minutes ago                     |
 
 Locally they are **suspended** (`spark-jobs.suspend: true` in `helm/values/local.yaml`) so they do not use laptop memory on their own; on AWS they run. To enable them locally, change that value (or add `suspend: false` to one schedule) and `make gitops-push`. A `kubectl patch` would be reverted by Argo CD.
 
@@ -56,7 +58,7 @@ Locally they are **suspended** (`spark-jobs.suspend: true` in `helm/values/local
 ```bash
 make local-spark-test      # or: apps/spark-jobs/run-tests.sh [pytest args]
 ```
-The tests run **inside the Spark image** (Linux, Java 21, the same Iceberg jars as production), against a local Iceberg catalog. They cover compaction (rows preserved, idempotent, leaves small partitions alone), expiry with a controllable clock, the orphan safety window, step ordering, the same-name catalog/namespace layout, and the aggregate (correct statistics, idempotent re-runs, late data, hour alignment, window bounds, null values, empty windows). They do not run on the Windows host because Hadoop's local filesystem needs `winutils`.
+The tests run **inside the Spark image** (Linux, Java 21, the same Iceberg jars as production), against a local Iceberg catalog. They cover compaction (rows preserved, idempotent, leaves small partitions alone), expiry with a controllable clock, the orphan safety window, step ordering, the same-name catalog/namespace layout, the aggregate (correct statistics, idempotent re-runs, late data, hour alignment, window bounds, null values, empty windows), and the reconciliation (holes reported with their offsets, an offset stored twice, out-of-order timestamps at the window edge, rows without lineage, the snapshot summary, empty windows). They do not run on the Windows host because Hadoop's local filesystem needs `winutils`.
 
 ## **Configuration**
 Settings come from environment variables on the driver (`ICEBERG_REST_URI`, `ICEBERG_WAREHOUSE`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `AWS_REGION`), the same names the Flink job uses. On AWS the S3 variables are unset and the default credential chain applies; the catalog would be Glue instead of REST, which changes only the catalog properties in `lakehouse_jobs/common.py`.

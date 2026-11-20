@@ -5,7 +5,9 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.ToDoubleFunction;
 
@@ -17,12 +19,17 @@ final class TableMetrics {
     private final Counter successes;
     private final Counter failures;
     private final Timer duration;
+    private final MeterRegistry registry;
+    private final Tags tags;
+    private final Map<String, AtomicReference<Double>> properties = new ConcurrentHashMap<>();
 
     TableMetrics(MeterRegistry registry, String table) {
         // Micrometer's API is null-annotated (JSpecify); checking here proves non-null to the null analysis.
         Objects.requireNonNull(registry, "registry");
         Objects.requireNonNull(table, "table");
         Tags tags = Tags.of("table", table);
+        this.registry = registry;
+        this.tags = tags;
         gauge(registry, "iceberg.table.up", "1 if the last inspection succeeded", tags, h -> up.get());
         gauge(registry, "iceberg.table.snapshots", "Snapshots in the table metadata", tags, h -> h.snapshots());
         gauge(registry, "iceberg.table.data.files", "Data files in the current snapshot", tags, h -> h.dataFiles());
@@ -46,6 +53,9 @@ final class TableMetrics {
 
     void record(TableHealth latest, long nanos) {
         health.set(latest);
+        // A key the newest snapshot lacks reads NaN, so a stale value never looks current.
+        properties.forEach((key, value) -> value.set(latest.properties().getOrDefault(key, Double.NaN)));
+        latest.properties().forEach((key, value) -> property(key).set(value));
         up.set(1.0);
         successes.increment();
         duration.record(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
@@ -55,6 +65,18 @@ final class TableMetrics {
     void failed() {
         up.set(0.0);
         failures.increment();
+    }
+
+    private AtomicReference<Double> property(String key) {
+        return properties.computeIfAbsent(key, k -> {
+            AtomicReference<Double> ref = new AtomicReference<>(Double.NaN);
+            Objects.requireNonNull(registry, "registry");
+            Gauge.builder("iceberg.table.snapshot.property", ref, AtomicReference::get)
+                    .tags(Objects.requireNonNull(tags, "tags").and("property", k))
+                    .description("A numeric lakehouse.* key of the current snapshot summary, written by a job")
+                    .register(registry);
+            return ref;
+        });
     }
 
     private void gauge(MeterRegistry registry, String name, String help, Tags tags, ToDoubleFunction<TableHealth> value) {

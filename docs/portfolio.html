@@ -190,11 +190,12 @@ footer { border-top: 1px solid var(--line); padding-top: 20px; font-size: 0.85re
         <tbody>
           <tr><td>Exactly once</td><td>24,000 events with 3,400 duplicate sends and re-sends, a TaskManager kill and a savepoint restore: <span class="mono">24,000</span> rows, <span class="mono">24,000</span> distinct</td><td><code>docs/flink-iceberg.md</code></td></tr>
           <tr><td>Chaos</td><td>Broker isolation, TaskManager kill, 400 ms Kafka latency, a paused node, ingestion pods killed with replies lost: <span class="mono">323,300</span> events, none lost or duplicated</td><td><code>docs/chaos/</code></td></tr>
+          <tr><td>Data integrity</td><td>3,000 events, 300 retried copies, 3 non-Avro records: <span class="mono">3,303</span> Kafka offsets, each in exactly one table; one row deleted on purpose was found by its offset and alerted on</td><td><code>docs/integrity/README.md</code></td></tr>
           <tr><td>Iceberg maintenance</td><td>70 small files to 1, 56 snapshots to 1; compaction under 5,000 events/s with Kafka = table at <span class="mono">3,501,500</span></td><td><code>docs/spark-iceberg.md</code></td></tr>
           <tr><td>JVM performance</td><td>30,000 events/s, 0 errors, p99 23 ms; an Avro encoder change cut allocation 19%; G1 and generational ZGC compared with JFR</td><td><code>docs/performance/</code></td></tr>
           <tr><td>AWS end to end</td><td>5,000 events through ingestion, Kafka, Flink and Iceberg on S3 and Glue; Athena counted 5,000 rows, 5,000 distinct</td><td><code>docs/aws.md</code></td></tr>
           <tr><td>Security on EKS</td><td>Kafka mTLS and ACLs 10/10, network policies 9/9, admission 15/15; signed image admitted, unsigned refused</td><td><code>SECURITY.md</code></td></tr>
-          <tr><td>Observability</td><td>27 alerts with runbooks and promtool tests; 57 of 57 dashboard queries return data; an alert fired, its runbook fixed it, it resolved</td><td><code>docs/observability.md</code></td></tr>
+          <tr><td>Observability</td><td>31 alerts with runbooks and promtool tests; 57 of 57 dashboard queries return data; an alert fired, its runbook fixed it, it resolved</td><td><code>docs/observability.md</code></td></tr>
           <tr><td>Agentic ops</td><td>37 of 37 guardrail checks; 13 read-only MCP tools reached through AgentCore Gateway inside the VPC, 1.38 s per call</td><td><code>docs/ai-ops.md</code></td></tr>
           <tr><td>Teardown</td><td><code>aws-down</code> releases every volume and load balancer before <code>terraform destroy</code>, then checks for leftovers</td><td><code>docs/aws.md</code></td></tr>
         </tbody>
@@ -320,7 +321,7 @@ footer { border-top: 1px solid var(--line); padding-top: 20px; font-size: 0.85re
         <tbody>
           <tr><td>1. Platform up</td><td>A 4-node kind cluster; Argo CD installs everything from in-cluster Git (20-40 min first time)</td><td><code>make local-up</code>, <code>make gitops-status</code>, <code>make local-smoke</code>, <code>make local-ports</code></td></tr>
           <tr><td>2. Tour of the UIs</td><td>Grafana dashboards, every Prometheus job up, Alertmanager, the Avro schema</td><td>Browser, through <code>make local-ports</code></td></tr>
-          <tr><td>3. Exactly once</td><td>Load through the real path; 3 waves, a pod kill and a savepoint restore; a column added end to end</td><td><code>make local-loadtest</code>, <code>make local-test-exactly-once</code>, <code>make local-demo-schema-evolution</code></td></tr>
+          <tr><td>3. Exactly once</td><td>Load through the real path; 3 waves, a pod kill and a savepoint restore; a column added end to end</td><td><code>make local-loadtest</code>, <code>make local-test-exactly-once</code>, <code>make local-demo-schema-evolution</code>, <code>make local-test-integrity</code></td></tr>
           <tr><td>4. Spark</td><td>Compaction, manifest rewrite, snapshot expiry, hourly aggregates</td><td><code>make local-deploy-spark</code>, <code>make local-spark-maintenance</code>, <code>make local-spark-aggregate</code></td></tr>
           <tr><td>5. GitOps</td><td>A change delivered from Git; a manual change reverted by Argo CD</td><td><code>make helm-check</code>, <code>make gitops-push</code></td></tr>
           <tr><td>6. Security</td><td>Trivy gate and SBOMs; Kafka mTLS and ACLs, network policies, admission</td><td><code>make security-scan</code>, <code>make security-test</code></td></tr>

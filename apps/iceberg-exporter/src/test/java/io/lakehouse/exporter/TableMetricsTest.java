@@ -29,6 +29,28 @@ class TableMetricsTest {
     }
 
     @Test
+    void exportsNumericLakehouseSnapshotProperties() {
+        PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        TableMetrics metrics = new TableMetrics(registry, "lakehouse.events_reconciliation");
+        Map<String, Double> first = TableHealth.numericProperties(Map.of(
+                "lakehouse.missing", "3", "lakehouse.checked-offsets", "1000", "lakehouse.note", "text",
+                "added-records", "1"));
+
+        metrics.record(new TableHealth(1, 1, 1, 0, 1, 100, 1, 1_700_000_000_000L, -1, first), 1_000_000);
+        assertThat(registry.scrape()).contains(
+                "iceberg_table_snapshot_property{property=\"lakehouse.missing\",table=\"lakehouse.events_reconciliation\"} 3.0",
+                "iceberg_table_snapshot_property{property=\"lakehouse.checked-offsets\",table=\"lakehouse.events_reconciliation\"} 1000.0");
+        assertThat(first).doesNotContainKeys("lakehouse.note", "added-records");
+
+        // The next snapshot lacks a key: it reads NaN rather than the old value.
+        metrics.record(new TableHealth(2, 1, 1, 0, 1, 100, 1, 1_700_000_100_000L, -1,
+                Map.of("lakehouse.missing", 0.0)), 1_000_000);
+        assertThat(registry.scrape()).contains(
+                "iceberg_table_snapshot_property{property=\"lakehouse.missing\",table=\"lakehouse.events_reconciliation\"} 0.0",
+                "iceberg_table_snapshot_property{property=\"lakehouse.checked-offsets\",table=\"lakehouse.events_reconciliation\"} NaN");
+    }
+
+    @Test
     void aFailedInspectionMarksTheTableDownButKeepsLastValues() {
         PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
         TableMetrics metrics = new TableMetrics(registry, "lakehouse.events");

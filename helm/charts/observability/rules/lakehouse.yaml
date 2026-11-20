@@ -1,4 +1,4 @@
-# Iceberg table health, the Spark maintenance jobs, Argo CD and External Secrets.
+# Iceberg table health, offset reconciliation, the Spark maintenance jobs, Argo CD and External Secrets.
 groups:
   - name: iceberg
     rules:
@@ -44,6 +44,41 @@ groups:
           summary: "{{ $labels.table }} keeps {{ $value }} snapshots"
           description: Snapshot expiry is not running; metadata grows and old data files are never deleted.
           runbook_url: docs/runbooks/lakehouse.md#icebergsnapshotsaccumulating
+
+  # The reconcile job's results, from the snapshot summary of lakehouse.events_reconciliation (one run per snapshot).
+  - name: integrity
+    rules:
+      - alert: LakehouseRecordsMissing
+        expr: |
+          iceberg_table_snapshot_property{table="lakehouse.events_reconciliation", property="lakehouse.missing"} > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} Kafka records never reached the lakehouse"
+          description: The last reconciliation found offsets in neither events nor events_skipped, so counts built on events are short. Its missing_ranges column lists them.
+          runbook_url: docs/runbooks/lakehouse.md#lakehouserecordsmissing
+      - alert: LakehouseRecordsDuplicated
+        expr: |
+          iceberg_table_snapshot_property{table="lakehouse.events_reconciliation", property="lakehouse.duplicated-offsets"} > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} Kafka records are stored more than once"
+          description: The same partition and offset is in the lakehouse twice, so a commit was repeated and counts are inflated.
+          runbook_url: docs/runbooks/lakehouse.md#lakehouserecordsduplicated
+      - alert: LakehouseReconciliationStale
+        # A one-off run records an interval of 0, which this ignores; only a scheduled run sets when the next is due.
+        expr: |
+          (time() - iceberg_table_last_commit_timestamp_seconds{table="lakehouse.events_reconciliation"})
+            > on (table)
+          (3 * iceberg_table_snapshot_property{table="lakehouse.events_reconciliation", property="lakehouse.expected-interval-seconds"} > 0)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: The offset reconciliation has missed three runs
+          description: Nothing checks that every accepted event reached the lakehouse, so a loss would go unnoticed.
+          runbook_url: docs/runbooks/lakehouse.md#lakehousereconciliationstale
 
   - name: platform
     rules:

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Run one PySpark job on the cluster as a SparkApplication, wait for it, print its SUMMARY line.
-#   usage: spark-run.sh <name> <maintenance|aggregate> [job args...]
+#   usage: spark-run.sh <name> <maintenance|aggregate|reconcile> [job args...]
 #   env:   EXECUTORS (default 2)   EXECUTOR_MEMORY (default 1g)   TIMEOUT_SECONDS (default 900)
 #          SPARK_CONF_EXTRA  extra Spark settings, one "key=value" per line
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require kubectl
 
-NAME="${1:?name required}"; ENTRY="${2:?maintenance|aggregate}"; shift 2
+NAME="${1:?name required}"; ENTRY="${2:?maintenance|aggregate|reconcile}"; shift 2
 EXECUTORS="${EXECUTORS:-2}"; EXECUTOR_MEMORY="${EXECUTOR_MEMORY:-1g}"; TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-900}"
 
 args_yaml=""

@@ -3,7 +3,7 @@ package io.lakehouse.flink;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
-import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.data.RowData;
 import org.apache.iceberg.Schema;
@@ -29,12 +29,19 @@ public final class EventsJob {
         Schema schema;
         Catalog catalog = IcebergTables.openCatalog(config);
         try {
-            schema = IcebergTables.ensureTable(catalog, config).schema();
+            schema = IcebergTables.ensureLineageColumns(IcebergTables.ensureTable(catalog, config)).schema();
+            Schema skipped = IcebergTables.ensureSkippedTable(catalog, config).schema();
+            if (!IcebergTables.sameColumns(skipped, IcebergTables.skippedSchema())) {
+                throw new IllegalStateException(config.icebergSkippedTable() + " does not have the expected schema: "
+                        + skipped.asStruct());
+            }
         } finally {
             IcebergTables.close(catalog);
         }
         LOG.info("Iceberg table {}.{} at schema id {}: {}", config.icebergNamespace(), config.icebergTable(),
                 schema.schemaId(), schema.asStruct());
+
+        RecordLayout layout = RecordLayout.of(schema);
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(config.parallelism());
@@ -51,20 +58,33 @@ public final class EventsJob {
                 .setGroupId(config.consumerGroup())
                 // A new job starts from the beginning; a restored job continues from checkpointed offsets.
                 .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST))
-                .setValueOnlyDeserializer(new ConfluentAvroRowDeserializer(config.schemaRegistryUrl(), schema))
+                .setDeserializer(new KafkaRecordDecoder(
+                        new ConfluentAvroRowDeserializer(config.schemaRegistryUrl(), schema), layout))
                 .build();
 
-        DataStream<RowData> events = env
+        // Every Kafka offset ends up in exactly one table: events, or events_skipped (undecodable or duplicate).
+        SingleOutputStreamOperator<RowData> decoded = env
                 .fromSource(source, WatermarkStrategy.noWatermarks(), "kafka-events")
                 .uid("kafka-source")
+                .process(new SkippedRecords.Router(layout), layout.tableTypeInfo())
+                .uid("route-undecodable")
+                .name("route-undecodable");
+
+        SingleOutputStreamOperator<RowData> events = decoded
                 .keyBy(Deduplicator::keyOf)
-                .process(new Deduplicator(config.dedupeTtl()))
+                .process(new Deduplicator(config.dedupeTtl(), layout), layout.tableTypeInfo())
                 .uid("deduplicate")
                 .name("deduplicate-by-event-id");
 
         IcebergSink.forRowData(events)
                 .tableLoader(IcebergTables.tableLoader(config))
                 .uidSuffix("events-iceberg")
+                .append();
+
+        // Its own sink, committed on the same checkpoints as the events table.
+        IcebergSink.forRowData(decoded.getSideOutput(SkippedRecords.TAG).union(events.getSideOutput(SkippedRecords.TAG)))
+                .tableLoader(IcebergTables.skippedTableLoader(config))
+                .uidSuffix("skipped-iceberg")
                 .append();
 
         env.execute("events-to-iceberg");

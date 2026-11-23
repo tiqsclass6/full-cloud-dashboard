@@ -139,7 +139,7 @@ Next, outside the phases: run the agent and its eval suite once Bedrock access t
 | **AWS CLI v2**              | Yes      | Credentials, ECR login, leftover checks in `make aws-down`                   |
 | **Python 3.13+ and uv**     | Yes      | Test tools, diagrams, dependency locks (the agent images run Python 3.14)    |
 | **Git**                     | Yes      | Source control; Argo CD pulls from an in-cluster Gitea                       |
-| **Docker Desktop (29.x)**   | Yes      | Everything local; give it at least 10 GB of memory                           |
+| **Docker Desktop (29.x)**   | Yes      | Everything local; give it at least 20 GB of memory (see below)               |
 | **kind, kubectl, helm**     | Yes      | The local Kubernetes cluster and the charts                                  |
 | **JDK 21**                  | Yes      | Building the Java services (Gradle provisions JDK 17 for the Flink job)      |
 | **make, curl, jq, openssl** | Yes      | The scripts behind every `make` target                                       |
@@ -147,6 +147,8 @@ Next, outside the phases: run the agent and its eval suite once Bedrock access t
 | **Graphviz (`dot`)**        | Yes      | `make diagrams` only                                                         |
 | **Jenkins**                 | No       | No CI server: the test gate is `make` targets, and Argo CD does the delivery |
 | **GCP Console, Google SDK** | No       | The project runs on kind and AWS only                                        |
+
+The local cluster uses about 13 GiB at rest and about 4 GiB more per Spark job; 20 GB for Docker leaves room for that ([**memory notes**](docs/lab/RUNBOOK.md#memory)).
 
 On Windows, run every command in **Git Bash**. An AWS account is needed only for Part 9; it costs about $0.40 per hour while the environment is up.
 
@@ -250,7 +252,7 @@ The full lab, with sign-ins, expected output and screenshot instructions, is [**
    make local-up        # 20-40 min the first time
    make gitops-status   # every application Synced and Healthy
    make local-smoke     # end-to-end checks, ending with "All smoke checks passed."
-   make local-ports     # in a second terminal: Argo CD :8090, Gitea :3300, Grafana :3000, Prometheus :9090, Langfuse :3001
+   make local-ports     # in a second terminal: Argo CD :8090, Gitea :3300, Grafana :3000, Prometheus :9090, Langfuse :3001 (when on)
    ```
 
 2. **Tour the UIs.** Grafana (`admin` / `admin-local-dev`) has five Lakehouse dashboards; Prometheus shows every scrape job up (`min by (job) (up)`); Alertmanager shows only `Watchdog`; the Avro schema is at `http://localhost:8085/apis/ccompat/v7/subjects/events.raw-value/versions/latest`.
@@ -299,7 +301,7 @@ The full lab, with sign-ins, expected output and screenshot instructions, is [**
    ```bash
    make ai-test        # unit tests
    make ai-deploy      # MCP tools, agent, approval service, Hermes
-   bash local/scripts/deploy-langfuse.sh
+   make langfuse-on    # optional: LLM tracing (about 2 GiB; off by default)
    make ai-ops-test    # 37 guardrail checks, including a real approved action and its audit trail
    ```
 

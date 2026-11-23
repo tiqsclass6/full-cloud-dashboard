@@ -52,7 +52,7 @@ The AWS console uses your own AWS sign-in (the identity your CLI uses, or your S
 
 | **Tool**                         | **Needed for**                                                 |
 | -------------------------------- | -------------------------------------------------------------- |
-| **Docker Desktop (29.x)**        | Everything; give it at least 10 GB of memory                   |
+| **Docker Desktop (29.x)**        | Everything; give it at least 20 GB of memory (see below)       |
 | **kind, kubectl, helm**          | The local cluster                                              |
 | **git, make, curl, jq, openssl** | The scripts                                                    |
 | **uv and Python 3.13+**          | Test tools, diagrams, dependency locks                         |
@@ -130,7 +130,7 @@ The AWS console uses your own AWS sign-in (the identity your CLI uses, or your S
 2. **Prometheus:** open <http://localhost:9090>, then **Query**, run `min by (job) (up)` and open the **Table** tab. Every job should show `1` (all of its targets up). With more than 20 scrape pools, **Status > Target health** shows only one pool at a time.
 3. **Alertmanager:** open <http://localhost:9093>. With a healthy platform only the `Watchdog` alert is active.
 4. **Apicurio Registry:** no web UI is deployed; read the schema through its API in the browser: <http://localhost:8085/apis/ccompat/v7/subjects> lists the subjects, and <http://localhost:8085/apis/ccompat/v7/subjects/events.raw-value/versions/latest> shows the Avro schema of the events topic.
-5. **Langfuse:** open <http://localhost:3001> and sign in as `admin@lakehouse.local` (password command in the Sign-in reference). It stays empty until the ops agent runs an investigation (Part 8).
+5. **Langfuse** is off by default (about 2 GiB, and nothing to trace until the agent has model access). `make langfuse-on` starts it (Part 8); then open <http://localhost:3001> and sign in as `admin@lakehouse.local` (password command in the Sign-in reference). `make langfuse-off` removes it again and keeps its data.
 
 > **[Screenshot 04] Grafana: Lakehouse / Overview**
 > File: `docs/lab/images/04-grafana-overview.png`
@@ -326,11 +326,11 @@ The AWS console uses your own AWS sign-in (the identity your CLI uses, or your S
    make ai-test
    ```
 
-2. Build and deploy the MCP tool server, the agent and the approval service, then Langfuse's secrets:
+2. Build and deploy the MCP tool server, the agent and the approval service. Langfuse is optional (`make langfuse-on`; the agent runs untraced without it):
 
    ```bash
    make ai-deploy
-   bash local/scripts/deploy-langfuse.sh
+   make langfuse-on    # optional: LLM tracing
    ```
 
 3. The guardrail test: RBAC per service account, token checks, network policy, and a real approved action from the terminal with its full audit trail. It needs no model access.
@@ -473,11 +473,38 @@ The kind node containers may be set not to start with Docker Desktop (`docker up
 | **Commands reach the wrong cluster**                                                        | Pass `--context kind-lakehouse` (or set `KUBE_CONTEXT`); the default context may be an old EKS one                                                                                                                                                                                                                                                                                                                                                                  |
 | **A manual change keeps being undone**                                                      | Argo CD self-heal. Pause sync first: `source local/scripts/lib.sh && gitops_pause`, later `gitops_resume`                                                                                                                                                                                                                                                                                                                                                           |
 | **`make gitops-push` hangs**                                                                | Your GPG agent is asking for the signing passphrase; unlock it and run again                                                                                                                                                                                                                                                                                                                                                                                        |
-| **Pods `Pending` or `OOMKilled`**                                                           | Give Docker Desktop more memory (10 GB or more)                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Pods `Pending` or `OOMKilled`**                                                           | Give Docker Desktop more memory (20 GB or more; see Memory below)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Spark jobs or drills take many times longer than usual**                                  | Check memory (`make local-load`, below). After hours of runs, image loads or a standby, restart the nodes: `docker stop` then `docker start` the four `lakehouse-*` containers                                                                                                                                                                                                                                                                                      |
 | **An alert fired**                                                                          | Open its runbook: every alert's `runbook_url` points to a section in [**docs/runbooks/**](../runbooks/)                                                                                                                                                                                                                                                                                                                                                             |
 | **A script stops with `port-forward ... failed` and `forbidden by its access permissions`** | Windows reserved the port (Hyper-V/WSL/Docker take ranges, e.g. 8002-8101 hides 8081, 8082, 8085, 8090). Check with `netsh interface ipv4 show excludedportrange protocol=tcp`. In an administrator shell: `net stop winnat` then `net start winnat` (restart Docker Desktop afterwards), or reboot. To keep Windows from taking them again: `netsh int ipv4 add excludedportrange protocol=tcp startport=8081 numberofports=2` (repeat for 8085, 8090, 8181, 8333) |
 | **`aws-up` fails building the arm64 image with `exec format error`**                        | Register the emulator: `docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install arm64`, then `make aws-up` again                                                                                                                                                                                                                                                                           |
 | **`aws-down` reports a VPC left after the agent step**                                      | Wait for AgentCore to release its network interfaces (up to 8 hours), then `make aws-down` again                                                                                                                                                                                                                                                                                                                                                                    |
+
+### **Memory**
+`make local-load` prints memory and CPU per pod and per namespace from Prometheus, plus what the Docker VM has left (the cluster has no metrics-server, so `kubectl top` does not work).
+
+Measured once at rest on 2026-11-23, after a fresh start of the nodes:
+
+| **What**                         | **Memory** |
+| -------------------------------- | ---------- |
+| **Docker VM (this laptop)**      | 19.2 GiB   |
+| **Cluster at rest, Langfuse on** | 14.8 GiB   |
+| **Langfuse (off by default)**    | 2.1 GiB    |
+| **Kafka (3 brokers)**            | 3.0 GiB    |
+| **Flink, ingestion (`apps`)**    | 2.8 GiB    |
+| **Kubernetes control plane**     | 2.3 GiB    |
+| **Each Spark job**               | ~4 GiB     |
+
+CPU was not the limit: about 1.6 of 16 cores at rest. With Langfuse on, the VM had 3.1 GiB free and had already moved 0.4 GiB to swap, so a Spark job plus the Spark test container pushed it further into swap. With Langfuse off it had 4.9 GiB free.
+
+On Windows, Docker Desktop's VM gets half the host's memory unless `%UserProfile%\.wslconfig` says otherwise. To give it more, for example 24 GB on a 40 GB machine:
+
+```ini
+[wsl2]
+memory=24GB
+```
+
+Then `wsl --shutdown` and start Docker Desktop again. Leave enough for Windows itself.
 
 ## **Screenshot checklist**
 

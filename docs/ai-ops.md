@@ -87,7 +87,7 @@ The IRSA roles trust one service account each; the AgentCore roles trust only th
 make ai-deploy
 ```
 
-Builds the three images (tests first), loads them into kind, creates the per-cluster secrets, restarts the workloads. Langfuse's secrets and database: `bash local/scripts/deploy-langfuse.sh`.
+Builds the three images (tests first), loads them into kind, creates the per-cluster secrets, restarts the workloads. Langfuse is off by default on kind (about 2 GiB of memory, and nothing to trace without model access): `make langfuse-on` creates its secrets and database and starts it; `make langfuse-off` removes it and keeps its data. Without it the agent runs untraced.
 
 ```bash
 make ai-creds

@@ -64,7 +64,9 @@ With the replay changes (2026-11-20, same window of the drill, one run each, on 
 | **Replays, window functions, cached**       | 6               | 2 per table        | 501 s         |
 | **Replays, window functions, checkpointed** | 3               | 1 per table        | 364 s         |
 
-The spread between single runs on a loaded cluster is larger than any difference between the versions, so these runs show no speed change. What they do show is the scan count, and that only the last version reads one snapshot of each table. Most of the time goes to shuffles of 200 tasks each over a few thousand rows; tuning that is separate work.
+The spread between single runs on a loaded cluster is larger than any difference between the versions, so these runs show no speed change. What they do show is the scan count, and that only the last version reads one snapshot of each table.
+
+On 2026-11-23, after a fresh start of the nodes and with Langfuse off, the last version took **35 s** on the same window (one run; 73 s including pod start-up). The first drill on 2026-11-20 had also reconciled in 36-41 s, with Langfuse running. The 339-501 s runs therefore came from the state of the cluster after hours of drills, image loads and a laptop standby, not from the code. In the slow runs, every step was slow: 31 s to load the catalog client, 55 s to read 11 MB ([**memory notes**](../lab/RUNBOOK.md#memory)).
 
 ## **What went wrong**
 - **The first reconciliation took 1,194 s.** It filtered by offset with a join, which Iceberg cannot push into the scan, and it evaluated the table scan three times. It now reads each table once, filtered by Kafka timestamp with a 1-hour slack, keeps that in memory and on disk, and checks offsets from it. The slack is the limit of the check: a record whose timestamp is more than an hour out of offset order is reported as missing (a unit test pins this).

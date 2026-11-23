@@ -1,7 +1,7 @@
 SHELL := bash
 SCRIPTS := local/scripts
 
-.PHONY: help local-up local-down local-smoke local-ports local-status local-deploy-ingest local-loadtest local-perf local-deploy-flink local-test-exactly-once local-demo-schema-evolution local-test-recovery local-test-integrity local-spark-reconcile local-replay local-repair-duplicates local-deploy-spark local-spark-test local-spark-maintenance local-spark-aggregate local-spark-schedules gitops-push gitops-bootstrap gitops-status helm-check docs-format docs-check tf-fmt tf-validate aws-init aws-plan aws-apply aws-up aws-gitops-push aws-smoke aws-down security-scan security-test aws-security-test rules-test dashboards diagrams chaos ai-test ai-deploy ai-creds ai-ops-test ai-eval ai-lock aws-agentcore aws-ai-test
+.PHONY: help local-up local-down local-smoke local-ports local-status local-load local-deploy-ingest local-loadtest local-perf local-deploy-flink local-test-exactly-once local-demo-schema-evolution local-test-recovery local-test-integrity local-spark-reconcile local-replay local-repair-duplicates local-deploy-spark local-spark-test local-spark-maintenance local-spark-aggregate local-spark-schedules gitops-push gitops-bootstrap gitops-status helm-check docs-format docs-check tf-fmt tf-validate aws-init aws-plan aws-apply aws-up aws-gitops-push aws-smoke aws-down security-scan security-test aws-security-test rules-test dashboards diagrams chaos ai-test ai-deploy ai-creds ai-ops-test ai-eval ai-lock langfuse-on langfuse-off aws-agentcore aws-ai-test
 
 help:
 	@echo "Local platform (kind):"
@@ -26,6 +26,7 @@ help:
 	@echo "  make local-deploy-spark             build the Spark image and load it into kind"
 	@echo "  make local-spark-maintenance        compact + manifests + expire + orphans, with stats"
 	@echo "  make local-spark-aggregate          hourly aggregates (events_hourly)"
+	@echo "  make local-load                     memory and CPU per pod and namespace (from Prometheus; kubectl top does not work here)"
 	@echo "  make local-spark-reconcile          offset reconciliation of the last 24 h (events_reconciliation)"
 	@echo "  make local-replay ARGS='missing --partition 3 --offset 276204'   re-send lost/undecodable records (dry run; add --apply)"
 	@echo "  make local-spark-schedules          show the scheduled jobs (defined in helm/charts/spark-jobs)"
@@ -48,6 +49,7 @@ help:
 	@echo "  make ai-ops-test                    guardrails: RBAC, tokens, network, approval path (no model needed)"
 	@echo "  make ai-eval RUNS=1                 replay the incident scenarios through the model and score them (costs tokens)"
 	@echo "  make ai-lock [ARGS=...]             re-lock the Python dependencies (releases at least two weeks old); ARGS='--upgrade-package X' bumps X"
+	@echo "  make langfuse-on / langfuse-off     LLM tracing for the agent on kind (off by default, about 2 GiB)"
 	@echo "Docs:"
 	@echo "  make docs-format / docs-check       align Markdown tables (check = report only)"
 	@echo "  make diagrams                       light reference diagrams in build/diagrams (docs/diagrams holds the dark set)"
@@ -116,6 +118,9 @@ local-spark-maintenance:
 
 local-spark-aggregate:
 	bash $(SCRIPTS)/spark-run.sh events-aggregate aggregate --lookback-hours 24
+
+local-load:
+	bash $(SCRIPTS)/cluster-load.sh
 
 local-spark-reconcile:
 	bash $(SCRIPTS)/spark-run.sh events-reconcile reconcile --lookback-hours 24 --settle-minutes 0
@@ -222,6 +227,12 @@ ai-eval:
 
 ai-lock:
 	bash $(SCRIPTS)/ai-lock.sh $(ARGS)
+
+langfuse-on:
+	bash $(SCRIPTS)/langfuse.sh on
+
+langfuse-off:
+	bash $(SCRIPTS)/langfuse.sh off
 
 aws-agentcore:
 	bash $(SCRIPTS)/aws-agentcore.sh $(ENV) up

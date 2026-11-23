@@ -5,6 +5,8 @@
 #   2. Flink: the events once each with lineage; the copies and the 3 records in events_skipped; FlinkRecordsUndecodable
 #   3. reconcile: nothing missing; then delete one row (the "silent loss"): reconcile names its offset,
 #      LakehouseRecordsMissing fires; restore the row: reconcile is clean again
+#   4. replay tool: the 3 records are still undecodable (nothing sent); a deleted row older than Flink's
+#      de-duplication window is found, sent again through the API, stored once, and reconcile is clean
 #   env: START (first eo_test index, default from the clock)   RESULT (JSON output, default docs/integrity/results/drill.json)
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require kubectl curl jq
@@ -108,14 +110,55 @@ CLEARED="$(wait_alert LakehouseRecordsMissing inactive 240)"
 [ "${CLEARED}" = "inactive" ] && ok "LakehouseRecordsMissing resolved" || fail "LakehouseRecordsMissing: ${CLEARED}"
 kc -n apps delete sparkapplication integrity-reconcile-1 integrity-reconcile-2 integrity-reconcile-3 --ignore-not-found >/dev/null
 
+log "4a. Replay the undecodable records (dry run): they are still not Avro, so nothing is sent"
+REPLAY_UNDECODABLE="$(bash "${LOCAL_DIR}/scripts/replay.sh" undecodable --since "$(iso "${T0}")" | grep '^SUMMARY ' | sed 's/^SUMMARY //')"
+echo "${REPLAY_UNDECODABLE}"
+[ "$(field "${REPLAY_UNDECODABLE}" '.outcomes.UNDECODABLE')" = "${POISON}" ] && [ "$(field "${REPLAY_UNDECODABLE}" .to_replay)" = "0" ] \
+  && ok "${POISON} reported as still undecodable, none sent" || fail "unexpected undecodable replay plan"
+
+log "4b. Replay a lost record: delete a row older than the de-duplication window, find it, send it again"
+OLD="$("${PY}" "${DRILL}" old-row --older-than-minutes 75)"; echo "${OLD}"
+REPLAY_MISSING='{"skipped": "no stored row older than 75 minutes"}'
+if [ "$(field "${OLD}" .found)" = "true" ]; then
+  P="$(field "${OLD}" .partition)"; O="$(field "${OLD}" .offset)"; ID="$(field "${OLD}" .event_id)"
+  OLD_TS="$(date -u -d "$(field "${OLD}" .kafka_timestamp)" +%s)"
+  "${PY}" "${DRILL}" delete-one --event-id "${ID}" --save "${REPO_ROOT}/build/integrity-replay-row.parquet" >/dev/null
+  window() { bash "${LOCAL_DIR}/scripts/spark-run.sh" "$1" reconcile --start "$(iso $((OLD_TS - 300)))" --end "$(iso $((OLD_TS + 300)))" | grep '^{' | tail -1; }
+  LOST_OLD="$(window integrity-reconcile-4)"; echo "${LOST_OLD}" | jq -c '{checked_offsets, missing, missing_ranges}'
+  [ "$(field "${LOST_OLD}" '.missing_ranges[0]')" = "p${P}:${O}-${O}" ] && ok "reconcile names p${P}:${O}" || fail "loss of p${P}:${O} not detected"
+  PLAN="$(bash "${LOCAL_DIR}/scripts/replay.sh" missing --partition "${P}" --offset "${O}" | grep '^{' | jq -r .outcome)"
+  [ "${PLAN}" = "REPLAY" ] && ok "dry run plans the replay" || fail "dry run: ${PLAN}"
+  APPLIED="$(bash "${LOCAL_DIR}/scripts/replay.sh" missing --partition "${P}" --offset "${O}" --apply | grep '^SUMMARY ' | sed 's/^SUMMARY //')"
+  echo "${APPLIED}"
+  [ "$(field "${APPLIED}" .sent)" = "1" ] && ok "sent through the ingestion API" || fail "replay not sent"
+  drain
+  EVENT="$("${PY}" "${DRILL}" event --event-id "${ID}")"; echo "${EVENT}"
+  [ "$(field "${EVENT}" .rows)" = "1" ] && [ "$(field "${EVENT}" '.copies[0].replayed_from' | cut -d: -f1-2)" = "${P}:${O}" ] \
+    && ok "the event is back once, marked as the replay of p${P}:${O}" || fail "replayed event not stored once"
+  AGAIN="$(bash "${LOCAL_DIR}/scripts/replay.sh" missing --partition "${P}" --offset "${O}" | grep '^{' | jq -r .outcome)"
+  [ "${AGAIN}" = "ALREADY_REPLAYED" ] && ok "a second replay is refused" || fail "second replay: ${AGAIN}"
+  HEALED="$(window integrity-reconcile-5)"; echo "${HEALED}" | jq -c '{checked_offsets, missing, replayed, duplicated_offsets}'
+  [ "$(field "${HEALED}" .missing)" = "0" ] && [ "$(field "${HEALED}" .replayed)" = "1" ] \
+    && ok "reconcile clean: the replay accounts for p${P}:${O}" || fail "reconcile after replay not clean"
+  REPLAY_MISSING="$(jq -n --argjson old "${OLD}" --argjson lost "${LOST_OLD}" --arg plan "${PLAN}" --argjson applied "${APPLIED}" \
+    --argjson event "${EVENT}" --arg again "${AGAIN}" --argjson healed "${HEALED}" \
+    '{row: $old, reconcile_after_delete: $lost, dry_run: $plan, applied: $applied, event_after: $event,
+      second_dry_run: $again, reconcile_after_replay: $healed}')"
+  kc -n apps delete sparkapplication integrity-reconcile-4 integrity-reconcile-5 --ignore-not-found >/dev/null
+else
+  echo "  skipped: no stored row older than 75 minutes (run the drill again in an hour)"
+fi
+
 jq -n --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson start "${START}" --argjson count "${COUNT}" \
   --argjson range "${RANGE}" --argjson lineage "${LINEAGE}" --argjson skipped "$(echo "${SKIPPED}" | jq 'del(.undecodable_records[].payload)')" \
   --arg errors_before "${ERR0}" --arg errors_after "${ERR1}" --arg undecodable_alert "${UNDECODABLE_ALERT}" \
   --argjson clean "${CLEAN}" --argjson lost "$(echo "${LOST}" | jq '.saved = "build/integrity-drill-row.parquet"')" --argjson detected "${DETECTED}" --arg missing_alert "${MISSING_ALERT}" \
   --argjson restored "${RESTORED}" --arg cleared "${CLEARED}" --argjson failed "${FAILED}" \
+  --argjson replay_undecodable "${REPLAY_UNDECODABLE}" --argjson replay_missing "${REPLAY_MISSING}" \
   '{date: $date, start: $start, events: $count, verify_range: $range, lineage: $lineage, skipped: $skipped,
     deserialization_errors: {before: $errors_before, after: $errors_after}, undecodable_alert: $undecodable_alert,
     reconcile_clean: $clean, deleted_row: $lost, reconcile_after_delete: $detected, missing_alert: $missing_alert,
-    reconcile_after_restore: $restored, missing_alert_after_restore: $cleared, passed: ($failed == 0)}' > "${RESULT}"
+    reconcile_after_restore: $restored, missing_alert_after_restore: $cleared,
+    replay_undecodable: $replay_undecodable, replay_missing: $replay_missing, passed: ($failed == 0)}' > "${RESULT}"
 echo "result: ${RESULT}"
 exit "${FAILED}"

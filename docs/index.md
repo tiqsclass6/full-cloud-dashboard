@@ -12,7 +12,7 @@ Documentation for a Kubernetes-native streaming lakehouse: Kafka (Strimzi), Flin
 | **Section**       | **Pages**                                                                                                                                                                        |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Start here**    | [**Lab runbook**](lab/RUNBOOK.md), [**diagrams and workflows**](diagrams/README.md)                                                                                              |
-| **Decisions**     | [**ADR 0001**](architecture-decisions/0001-local-first-kind-with-ephemeral-eks.md) to [**ADR 0011**](architecture-decisions/0011-every-offset-accounted-for.md)                  |
+| **Decisions**     | [**ADR 0001**](architecture-decisions/0001-local-first-kind-with-ephemeral-eks.md) to [**ADR 0012**](architecture-decisions/0012-replay-through-the-api.md)                      |
 | **Data pipeline** | [**Flink to Iceberg results**](flink-iceberg.md), [**Spark results**](spark-iceberg.md), [**JVM performance**](performance/README.md), [**data integrity**](integrity/README.md) |
 | **Operations**    | [**Observability**](observability.md), [**runbooks**](runbooks/), [**chaos experiments**](chaos/README.md), [**ops agent**](ai-ops.md)                                           |
 | **AWS**           | [**Running the AWS environment**](aws.md)                                                                                                                                        |

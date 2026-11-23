@@ -20,6 +20,9 @@ DEFAULT_SKIPPED = "lakehouse.lakehouse.events_skipped"
 DEFAULT_TARGET = "lakehouse.lakehouse.events_reconciliation"
 # Snapshot summary keys the iceberg-exporter turns into gauges (iceberg_table_snapshot_property).
 PROPERTY_PREFIX = "lakehouse."
+# Set by the replay tool (io.lakehouse.flink.ReplayTool): "<partition>:<offset>:<kafka timestamp ms>" of the record
+# an event replaces, so the replayed copy accounts for the original offset.
+REPLAY_MARKER = "lakehouse.replayed_from"
 MAX_RANGES = 100
 
 TARGET_DDL = """
@@ -38,7 +41,8 @@ CREATE TABLE IF NOT EXISTS {target} (
   missing_ranges      array<string>,
   details             array<struct<hour: timestamp, kafka_partition: int, first_offset: bigint, last_offset: bigint,
                                    stored: bigint, skipped_duplicate: bigint, skipped_undecodable: bigint,
-                                   missing: bigint, stored_by_source: map<string, bigint>>>
+                                   missing: bigint, stored_by_source: map<string, bigint>, replayed: bigint>>,
+  replayed            bigint
 ) USING iceberg
 PARTITIONED BY (days(run_at))
 TBLPROPERTIES ('format-version' = '2', 'write.parquet.compression-codec' = 'zstd')
@@ -51,11 +55,18 @@ def window_offsets(spark: SparkSession, events: str, skipped: str, start: dateti
     Iceberg skip files). Rows written before the lineage columns existed are left out."""
     lo, hi = utc_timestamp_literal(start - slack), utc_timestamp_literal(end + slack)
     where = f"kafka_offset IS NOT NULL AND kafka_timestamp >= TIMESTAMP '{lo}' AND kafka_timestamp < TIMESTAMP '{hi}'"
+    marker = f"split(attributes['{REPLAY_MARKER}'], ':')"
+    # A replay is written after its original, so its markers are read from the window start on, with no end.
     return spark.sql(f"""
         SELECT kafka_partition AS p, kafka_offset AS o, kafka_timestamp AS ts, source, event_id, 'stored' AS kind
         FROM {events} WHERE {where}
         UNION ALL
-        SELECT kafka_partition, kafka_offset, kafka_timestamp, source, event_id, reason FROM {skipped} WHERE {where}""")
+        SELECT kafka_partition, kafka_offset, kafka_timestamp, source, event_id, reason FROM {skipped} WHERE {where}
+        UNION ALL
+        SELECT CAST({marker}[0] AS int), CAST({marker}[1] AS bigint),
+               timestamp_millis(CAST({marker}[2] AS bigint)), source, event_id, 'replayed'
+        FROM {events}
+        WHERE kafka_timestamp >= TIMESTAMP '{lo}' AND attributes['{REPLAY_MARKER}'] IS NOT NULL""")
 
 
 def offset_ranges(offsets: DataFrame, start: datetime, end: datetime) -> list:
@@ -76,8 +87,18 @@ def in_ranges(offsets: DataFrame, ranges: list) -> DataFrame:
     return offsets.where(condition)
 
 
+def with_replays(offsets: DataFrame) -> DataFrame:
+    """Replay markers count for offsets that have no row of their own (a record lost after Kafka). An undecodable
+    record that was replayed keeps its own row; its marker is dropped so the offset is not counted twice."""
+    # Window functions, not a self-join: Spark re-plans one side of a self-join from the source tables.
+    has_row = F.max(F.when(F.col("kind") != "replayed", 1).otherwise(0)).over(Window.partitionBy("p", "o"))
+    nth = F.row_number().over(Window.partitionBy("p", "o", "kind").orderBy("event_id"))
+    return (offsets.withColumn("_has_row", has_row).withColumn("_nth", nth)
+            .where("kind <> 'replayed' OR (_has_row = 0 AND _nth = 1)").drop("_has_row", "_nth"))
+
+
 def reconcile(offsets: DataFrame, start: datetime, end: datetime) -> dict:
-    """`offsets` should be persisted: everything here derives from it."""
+    """`offsets` (after `with_replays`) should be materialised: everything here derives from it."""
     ranges = offset_ranges(offsets, start, end)
     rows = in_ranges(offsets, ranges).cache()
     try:
@@ -108,14 +129,15 @@ def reconcile(offsets: DataFrame, start: datetime, end: datetime) -> dict:
                   .agg(F.min("o").alias("first_offset"), F.max("o").alias("last_offset"),
                        F.count(F.when(F.col("kind") == "stored", 1)).alias("stored"),
                        F.count(F.when(F.col("kind") == "duplicate", 1)).alias("skipped_duplicate"),
-                       F.count(F.when(F.col("kind") == "undecodable", 1)).alias("skipped_undecodable"))
+                       F.count(F.when(F.col("kind") == "undecodable", 1)).alias("skipped_undecodable"),
+                       F.count(F.when(F.col("kind") == "replayed", 1)).alias("replayed"))
                   .join(missing_by_hour, ["p", "hour"], "left")
                   .join(per_source, ["p", "hour"], "left")
                   .select("hour", F.col("p").alias("kafka_partition"), "first_offset", "last_offset", "stored",
                           "skipped_duplicate", "skipped_undecodable",
                           F.coalesce("missing", F.lit(0)).cast("bigint").alias("missing"),
                           F.coalesce("stored_by_source", F.create_map().cast("map<string,bigint>"))
-                          .alias("stored_by_source"))
+                          .alias("stored_by_source"), "replayed")
                   .orderBy("hour", "kafka_partition"))
         return {
             "partitions": len(ranges),
@@ -123,6 +145,7 @@ def reconcile(offsets: DataFrame, start: datetime, end: datetime) -> dict:
             "stored": by_kind.get("stored", 0),
             "skipped_duplicate": by_kind.get("duplicate", 0),
             "skipped_undecodable": by_kind.get("undecodable", 0),
+            "replayed": by_kind.get("replayed", 0),
             "missing": int(expected) - present,
             "duplicated_offsets": duplicated,
             "duplicate_event_ids": duplicate_ids,
@@ -133,9 +156,19 @@ def reconcile(offsets: DataFrame, start: datetime, end: datetime) -> dict:
         rows.unpersist()
 
 
+def ensure_replayed_columns(spark: SparkSession, target: str) -> None:
+    """Tables created before replays were counted get the column (metadata only; older runs read null)."""
+    schema = spark.table(target).schema
+    if "replayed" not in schema.fieldNames():
+        spark.sql(f"ALTER TABLE {target} ADD COLUMN replayed bigint")
+    if "replayed" not in schema["details"].dataType.elementType.fieldNames():
+        spark.sql(f"ALTER TABLE {target} ADD COLUMN details.element.replayed bigint")
+
+
 def write_result(spark: SparkSession, target: str, run_at: datetime, start: datetime, end: datetime,
                  result: dict, expected_interval_seconds: int = 0) -> None:
     spark.sql(TARGET_DDL.format(target=target))
+    ensure_replayed_columns(spark, target)
     schema = spark.table(target).schema
     row = {"run_at": run_at, "window_start": start, "window_end": end,
            **{k: result[k] for k in result}}
@@ -143,7 +176,7 @@ def write_result(spark: SparkSession, target: str, run_at: datetime, start: date
     writer = df.writeTo(target)
     # One snapshot per run carries the totals, so the exporter needs no table scan.
     for key in ("checked_offsets", "missing", "duplicated_offsets", "skipped_undecodable", "skipped_duplicate",
-                "duplicate_event_ids"):
+                "duplicate_event_ids", "replayed"):
         writer = writer.option(f"snapshot-property.{PROPERTY_PREFIX}{key.replace('_', '-')}", str(result[key]))
     # When the next run is due (0: a one-off run); the staleness alert reads it, so manual runs never trip it.
     writer = writer.option(f"snapshot-property.{PROPERTY_PREFIX}expected-interval-seconds",
@@ -156,11 +189,11 @@ def run(spark: SparkSession, events: str, skipped: str, target: str, start: date
     if end <= start:
         raise ValueError("end must be after start")
     started = time.monotonic()
-    offsets = window_offsets(spark, events, skipped, start, end, slack).persist(StorageLevel.MEMORY_AND_DISK)
-    try:
-        result = reconcile(offsets, start, end)
-    finally:
-        offsets.unpersist()
+    # Read once and keep it: with persist(), Spark re-resolved the tables for each derived query and so missed the
+    # cache, scanning again at a newer snapshot. A local checkpoint keeps no table in the plan to re-resolve.
+    offsets = with_replays(window_offsets(spark, events, skipped, start, end, slack)).localCheckpoint(
+        eager=True, storageLevel=StorageLevel.MEMORY_AND_DISK)
+    result = reconcile(offsets, start, end)
     run_at = datetime.now(timezone.utc)
     write_result(spark, target, run_at, start, end, result, expected_interval_seconds)
     summary = {k: v for k, v in result.items() if k != "details"}

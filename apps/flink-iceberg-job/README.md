@@ -52,6 +52,16 @@ Created on first start, format v2, Parquet with zstd:
 java -cp /opt/flink/usrlib/job.jar io.lakehouse.flink.SchemaTool add-column region string
 ```
 
+## **Replaying records**
+`ReplayTool` sends records the lakehouse does not have back through the ingestion API, with their original `event_id` and the attribute `lakehouse.replayed_from` ([**ADR 0012**](../../docs/architecture-decisions/0012-replay-through-the-api.md)). `local/scripts/replay.sh` runs it as a one-off pod with the JobManager's image, environment and Kafka certificate. It is a dry run unless `--apply` is given.
+
+```bash
+bash local/scripts/replay.sh missing --partition 3 --offset 276204 --count 7   # offsets the reconciliation reported
+bash local/scripts/replay.sh undecodable --since 2026-11-19T00:00:00Z          # events_skipped rows that decode now
+```
+
+Each offset gets one outcome: `REPLAY`; `STORED`, `SKIPPED`, `ALREADY_REPLAYED` or `EVENT_ID_STORED` (nothing to do); `WAIT_FOR_DEDUPE_TTL` (Flink would still drop the copy; retry at the time printed); or `NOT_IN_KAFKA`, `UNDECODABLE` or `NOT_SENDABLE` (only the source can resend it). The decision rules are unit-tested (`ReplayTest`); the Kafka and Iceberg lookups are tested by the integrity drill.
+
 ## **Build, test, deploy**
 ```bash
 ./gradlew build            # unit tests (decoding, lineage, evolution, the routing of every offset on a mini-cluster) + fat jar
@@ -62,7 +72,7 @@ make local-deploy-flink    # from the repository root: build, load image into ki
 The unit tests cover the decode and evolution rules, the lineage columns, and that a stream with duplicates and an undecodable record leaves every offset in exactly one table. The end-to-end behaviour is tested against the real cluster (`make local-test-exactly-once`, `make local-test-integrity`).
 
 ## **Known limits**
-- Records that cannot be decoded (not Avro, unknown schema id, a required column missing) do not stop the job: they are counted (`deserializationErrors`), logged, and stored in `events_skipped` with the error and their bytes, and `FlinkRecordsUndecodable` fires. Nothing replays them automatically ([**runbook**](../../docs/runbooks/pipeline.md#flinkrecordsundecodable)). A schema registry that cannot answer (unreachable, timeout, HTTP 5xx or 429) is not a bad record: the task fails and Flink restarts from the last checkpoint, so the record is read again instead of being set aside. A long registry outage therefore shows up as job restarts.
+- Records that cannot be decoded (not Avro, unknown schema id, a required column missing) do not stop the job: they are counted (`deserializationErrors`), logged, and stored in `events_skipped` with the error and their bytes, and `FlinkRecordsUndecodable` fires. Nothing replays them automatically; once they decode, `local/scripts/replay.sh undecodable` sends them again through the API ([**runbook**](../../docs/runbooks/pipeline.md#flinkrecordsundecodable), [**ADR 0012**](../../docs/architecture-decisions/0012-replay-through-the-api.md)). A schema registry that cannot answer (unreachable, timeout, HTTP 5xx or 429) is not a bad record: the task fails and Flink restarts from the last checkpoint, so the record is read again instead of being set aside. A long registry outage therefore shows up as job restarts.
 - Hash-map state backend: fine for a 60-minute id set locally, but size it (or move to RocksDB) before AWS.
 - Many small files accumulate (one set per checkpoint); compaction arrives with the PySpark jobs in Phase 4.
 - The job jar is about 185 MB (AWS SDK and Hadoop client bundled).

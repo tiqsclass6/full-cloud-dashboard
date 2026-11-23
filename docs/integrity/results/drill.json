@@ -1,6 +1,6 @@
 {
-  "date": "2026-11-19T23:41:05Z",
-  "start": 22937600,
+  "date": "2026-11-20T05:34:04Z",
+  "start": 23838400,
   "events": 3000,
   "verify_range": {
     "expected": 3000,
@@ -26,24 +26,24 @@
     "undecodable_records": [
       {
         "partition": 1,
-        "offset": 190353,
+        "offset": 191259,
         "error": "not a Confluent-format Avro record"
       },
       {
         "partition": 1,
-        "offset": 190354,
+        "offset": 191260,
         "error": "not a Confluent-format Avro record"
       },
       {
         "partition": 1,
-        "offset": 190355,
+        "offset": 191261,
         "error": "not a Confluent-format Avro record"
       }
     ]
   },
   "deserialization_errors": {
-    "before": "0",
-    "after": "3"
+    "before": "3",
+    "after": "6"
   },
   "undecodable_alert": "firing",
   "reconcile_clean": {
@@ -53,19 +53,20 @@
     "stored": 3000,
     "skipped_duplicate": 300,
     "skipped_undecodable": 3,
+    "replayed": 0,
     "missing": 0,
     "duplicated_offsets": 0,
     "duplicate_event_ids": 0,
     "missing_ranges": [],
     "target": "lakehouse.lakehouse.events_reconciliation",
-    "window_start": "2026-11-19T23:01:54+00:00",
-    "window_end": "2026-11-19T23:05:58+00:00",
-    "seconds": 516.4
+    "window_start": "2026-11-20T01:32:01+00:00",
+    "window_end": "2026-11-20T01:35:52+00:00",
+    "seconds": 298.6
   },
   "deleted_row": {
-    "event_id": "c67aeb98-cd3a-5f0f-a5d5-9e342226ed91",
+    "event_id": "b77394e9-4c16-5a7d-acdc-438da838979d",
     "partition": 3,
-    "offset": 276204,
+    "offset": 277704,
     "saved": "build/integrity-drill-row.parquet"
   },
   "reconcile_after_delete": {
@@ -75,16 +76,17 @@
     "stored": 2999,
     "skipped_duplicate": 300,
     "skipped_undecodable": 3,
+    "replayed": 0,
     "missing": 1,
     "duplicated_offsets": 0,
     "duplicate_event_ids": 0,
     "missing_ranges": [
-      "p3:276204-276204"
+      "p3:277704-277704"
     ],
     "target": "lakehouse.lakehouse.events_reconciliation",
-    "window_start": "2026-11-19T23:01:54+00:00",
-    "window_end": "2026-11-19T23:18:16+00:00",
-    "seconds": 613.7
+    "window_start": "2026-11-20T01:32:01+00:00",
+    "window_end": "2026-11-20T01:41:35+00:00",
+    "seconds": 368.5
   },
   "missing_alert": "firing",
   "reconcile_after_restore": {
@@ -94,15 +96,95 @@
     "stored": 3000,
     "skipped_duplicate": 300,
     "skipped_undecodable": 3,
+    "replayed": 0,
     "missing": 0,
     "duplicated_offsets": 0,
     "duplicate_event_ids": 0,
     "missing_ranges": [],
     "target": "lakehouse.lakehouse.events_reconciliation",
-    "window_start": "2026-11-19T23:01:54+00:00",
-    "window_end": "2026-11-19T23:29:38+00:00",
-    "seconds": 637.9
+    "window_start": "2026-11-20T01:32:01+00:00",
+    "window_end": "2026-11-20T05:05:20+00:00",
+    "seconds": 474.7
   },
   "missing_alert_after_restore": "inactive",
+  "replay_undecodable": {
+    "mode": "undecodable",
+    "applied": false,
+    "checked": 3,
+    "outcomes": {
+      "UNDECODABLE": 3
+    },
+    "to_replay": 0,
+    "sent": 0,
+    "failed": 0
+  },
+  "replay_missing": {
+    "row": {
+      "found": true,
+      "event_id": "2f56ea8e-625a-5222-97d7-e89315945d69",
+      "partition": 5,
+      "offset": 200590,
+      "kafka_timestamp": "2026-11-20T01:34:03.252000+00:00"
+    },
+    "reconcile_after_delete": {
+      "job": "reconcile",
+      "partitions": 5,
+      "checked_offsets": 3303,
+      "stored": 2999,
+      "skipped_duplicate": 300,
+      "skipped_undecodable": 3,
+      "replayed": 0,
+      "missing": 1,
+      "duplicated_offsets": 0,
+      "duplicate_event_ids": 0,
+      "missing_ranges": [
+        "p5:200590-200590"
+      ],
+      "target": "lakehouse.lakehouse.events_reconciliation",
+      "window_start": "2026-11-20T01:29:03+00:00",
+      "window_end": "2026-11-20T01:39:03+00:00",
+      "seconds": 548.8
+    },
+    "dry_run": "REPLAY",
+    "applied": {
+      "mode": "missing",
+      "applied": true,
+      "checked": 1,
+      "outcomes": {
+        "REPLAY": 1
+      },
+      "to_replay": 1,
+      "sent": 1,
+      "failed": 0
+    },
+    "event_after": {
+      "rows": 1,
+      "copies": [
+        {
+          "partition": 5,
+          "offset": 200744,
+          "replayed_from": "5:200590:1795138443252"
+        }
+      ]
+    },
+    "second_dry_run": "ALREADY_REPLAYED",
+    "reconcile_after_replay": {
+      "job": "reconcile",
+      "partitions": 5,
+      "checked_offsets": 3303,
+      "stored": 2999,
+      "skipped_duplicate": 300,
+      "skipped_undecodable": 3,
+      "replayed": 1,
+      "missing": 0,
+      "duplicated_offsets": 0,
+      "duplicate_event_ids": 0,
+      "missing_ranges": [],
+      "target": "lakehouse.lakehouse.events_reconciliation",
+      "window_start": "2026-11-20T01:29:03+00:00",
+      "window_end": "2026-11-20T01:39:03+00:00",
+      "seconds": 245.3
+    }
+  },
   "passed": true
 }

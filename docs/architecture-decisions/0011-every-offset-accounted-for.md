@@ -30,7 +30,7 @@ The API answers 200 only after every in-sync replica has the event. "Accepted by
    - `FlinkRecordsUndecodable` (warning): `deserializationErrors` increased.
 
 ## **Consequences**
-- **What a missing offset means.** Kafka has the record and the lakehouse does not. While it is within the topic's 7-day retention it can be recovered by hand (runbook). No tool does this yet, and nothing replays undecodable records automatically either.
+- **What a missing offset means.** Kafka has the record and the lakehouse does not. While it is within the topic's 7-day retention it can be replayed with `local/scripts/replay.sh`, which also re-sends undecodable records once they decode ([**ADR 0012**](0012-replay-through-the-api.md), added the same day). Nothing replays automatically.
 - **The check depends on dense offsets.** It needs a non-transactional producer and no compaction. A transactional producer would put commit markers on offsets, and the check would have to read Kafka's own offsets instead.
 - **What it cannot see.**
   - A loss at the very end of a partition (no later offset yet) shows up only once a later record arrives.

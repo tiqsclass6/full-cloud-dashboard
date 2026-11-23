@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run one PySpark job on the cluster as a SparkApplication, wait for it, print its SUMMARY line.
 #   usage: spark-run.sh <name> <maintenance|aggregate|reconcile> [job args...]
-#   env:   EXECUTORS (default 2)   EXECUTOR_MEMORY (default 1g)   TIMEOUT_SECONDS (default 900)
+#   env:   EXECUTORS (default 2)   EXECUTOR_MEMORY (default 1g)   TIMEOUT_SECONDS (default 900)   IMAGE
 #          SPARK_CONF_EXTRA  extra Spark settings, one "key=value" per line
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require kubectl
@@ -25,7 +25,7 @@ spec:
   type: Python
   pythonVersion: "3"
   mode: cluster
-  image: lakehouse/spark-jobs:dev
+  image: ${IMAGE:-lakehouse/spark-jobs:dev}
   imagePullPolicy: IfNotPresent
   mainApplicationFile: local:///opt/jobs/${ENTRY}.py
   arguments:

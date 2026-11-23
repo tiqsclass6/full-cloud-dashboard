@@ -1,6 +1,6 @@
 # **Data integrity: every Kafka offset accounted for**
 
-How the platform shows that what the API accepted is what reached the lakehouse, and what happens to records it cannot store. Design: [**ADR 0011**](../architecture-decisions/0011-every-offset-accounted-for.md). Alerts: [**pipeline runbook**](../runbooks/pipeline.md#flinkrecordsundecodable), [**lakehouse runbook**](../runbooks/lakehouse.md#lakehouserecordsmissing).
+How the platform shows that what the API accepted is what reached the lakehouse, and what happens to records it cannot store. Design: [**ADR 0011**](../architecture-decisions/0011-every-offset-accounted-for.md). Alerts: [**pipeline runbook**](../runbooks/pipeline.md#flinkrecordsundecodable), [**lakehouse runbook**](../runbooks/lakehouse.md#lakehouserecordsmissing). Dashboard: **Lakehouse / Integrity** in Grafana (the last run's totals, replays, and what Flink set aside).
 
 ## **Where a record can fail, and what happens**
 | **Stage**                         | **Failure**                                      | **What happens**                                                                                            |

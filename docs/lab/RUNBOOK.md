@@ -126,7 +126,7 @@ The AWS console uses your own AWS sign-in (the identity your CLI uses, or your S
 
 ## **Part 2: Tour of the UIs**
 
-1. **Grafana:** open <http://localhost:3000> and sign in as `admin` / `admin-local-dev`. Go to **Dashboards**, folder **Lakehouse**. There are five dashboards: Overview, Ingestion SLO, Pipeline, Kafka, Tables.
+1. **Grafana:** open <http://localhost:3000> and sign in as `admin` / `admin-local-dev`. Go to **Dashboards** (folder **General**, tag `lakehouse`). There are six dashboards: Overview, Ingestion SLO, Pipeline, Kafka, Tables, Integrity.
 2. **Prometheus:** open <http://localhost:9090>, then **Query**, run `min by (job) (up)` and open the **Table** tab. Every job should show `1` (all of its targets up). With more than 20 scrape pools, **Status > Target health** shows only one pool at a time.
 3. **Alertmanager:** open <http://localhost:9093>. With a healthy platform only the `Watchdog` alert is active.
 4. **Apicurio Registry:** no web UI is deployed; read the schema through its API in the browser: <http://localhost:8085/apis/ccompat/v7/subjects> lists the subjects, and <http://localhost:8085/apis/ccompat/v7/subjects/events.raw-value/versions/latest> shows the Avro schema of the events topic.
@@ -134,7 +134,7 @@ The AWS console uses your own AWS sign-in (the identity your CLI uses, or your S
 
 > **[Screenshot 04] Grafana: Lakehouse / Overview**
 > File: `docs/lab/images/04-grafana-overview.png`
-> How: Grafana > Dashboards > Lakehouse > **Lakehouse / Overview**, time range **Last 1 hour**. Show availability, error budget, freshness and event flow.
+> How: Grafana > Dashboards > **Lakehouse / Overview**, time range **Last 1 hour**. Show availability, error budget, freshness and event flow.
 >
 > ![Screenshot 04: Grafana: Lakehouse / Overview](images/04-grafana-overview.png)
 >

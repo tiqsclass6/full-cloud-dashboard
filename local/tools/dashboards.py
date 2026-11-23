@@ -116,17 +116,20 @@ GREEN_RED = [(None, "red"), (1, "green")]
 def overview(L, P):
     P.append(L.row("Service level"))
     P.append(L.place(stat("Ingest availability (1d)", f"1 - ({ERRORS % '1d'} / {ALL % '1d'})", "percentunit",
-                          [(None, "red"), (SLO, "green")], "Objective: 99.5% of requests succeed.", 3), 6, 5))
+                          [(None, "red"), (SLO, "green")], "Objective: 99.5% of requests succeed.", 3), 5, 5))
     P.append(L.place(stat("Error budget left (1d)",
                           f"1 - (({ERRORS % '1d'} / {ALL % '1d'}) / {1 - SLO:.3f})", "percentunit",
                           [(None, "red"), (0.25, "orange"), (0.5, "green")],
-                          "Share of the 0.5% budget not yet used over the last day.", 1), 6, 5))
+                          "Share of the 0.5% budget not yet used over the last day.", 1), 5, 5))
     P.append(L.place(stat("Data freshness (events)",
                           'min(time() - iceberg_table_last_commit_timestamp_seconds{table="lakehouse.events"})', "s",
                           [(None, "green"), (120, "orange"), (300, "red")],
-                          "Age of the newest Iceberg snapshot. Flink commits every 10 s."), 6, 5))
+                          "Age of the newest Iceberg snapshot. Flink commits every 10 s."), 5, 5))
+    P.append(L.place(stat("Records missing", f"{prop('missing')}", "none", [(None, "green"), (1, "red")],
+                          "Kafka offsets the last reconciliation found in neither events nor events_skipped "
+                          "(Lakehouse / Integrity).", 0), 5, 5))
     P.append(L.place(stat("Alerts firing", 'count(ALERTS{alertstate="firing", alertname!="Watchdog"}) or vector(0)',
-                          "none", [(None, "green"), (1, "red")]), 6, 5))
+                          "none", [(None, "green"), (1, "red")]), 4, 5))
     P.append(L.row("Pipeline"))
     P.append(L.place(timeseries("Events in (per second)", [
         ('sum(rate(ingest_events_total{outcome="published"}[2m]))', "published to Kafka"),
@@ -249,6 +252,71 @@ def tables(L, P):
                           "1 when every table was inspected successfully."), 8, 5))
 
 
+RECONCILED = 'table="lakehouse.events_reconciliation"'
+FLINK_JOB = 'job_name="events_to_iceberg"'
+
+
+def prop(name):
+    """A total the last reconciliation wrote into its snapshot summary (iceberg-exporter)."""
+    return f'max(iceberg_table_snapshot_property{{{RECONCILED}, property="lakehouse.{name}"}})'
+
+
+def integrity(L, P):
+    P.append(L.row("Last reconciliation (events-reconcile, hourly, last 24 hours)"))
+    P.append(L.place(stat("Missing offsets", prop("missing"), "none", [(None, "green"), (1, "red")],
+                          "Offsets in neither events nor events_skipped: accepted by Kafka, not in the lakehouse. "
+                          "The run's missing_ranges column in events_reconciliation lists them; "
+                          "recover with local/scripts/replay.sh (runbook lakehouse.md#lakehouserecordsmissing).", 0),
+                     6, 5))
+    P.append(L.place(stat("Offsets stored twice", prop("duplicated-offsets"), "none", [(None, "green"), (1, "red")],
+                          "The same partition and offset in the lakehouse more than once (LakehouseRecordsDuplicated).",
+                          0), 6, 5))
+    P.append(L.place(stat("Offsets checked", prop("checked-offsets"), "none", description=
+                          "Every offset between each partition's first and last in the window.", decimals=0), 6, 5))
+    P.append(L.place(stat("Last run", f"time() - max(iceberg_table_last_commit_timestamp_seconds{{{RECONCILED}}})",
+                          "s", [(None, "green"), (7200, "orange"), (10800, "red")],
+                          "Age of the last run. LakehouseReconciliationStale fires after 3 missed runs of a scheduled "
+                          "job; one-off runs (and kind, where the schedule is suspended) do not arm it."), 6, 5))
+    P.append(L.row("Where the offsets went (last run)"))
+    P.append(L.place(stat("Replayed", prop("replayed"), "none", description=
+                          "Offsets accounted for by a replay through the API (attribute lakehouse.replayed_from).",
+                          decimals=0), 6, 5))
+    P.append(L.place(stat("Skipped: duplicate copies", prop("skipped-duplicate"), "none", description=
+                          "Retried copies Flink dropped; each is a row of events_skipped.", decimals=0), 6, 5))
+    P.append(L.place(stat("Skipped: undecodable", prop("skipped-undecodable"), "none",
+                          [(None, "green"), (1, "orange")],
+                          "Records Flink could not decode, kept with their bytes in events_skipped "
+                          "(runbook pipeline.md#flinkrecordsundecodable).", 0), 6, 5))
+    P.append(L.place(stat("Duplicate event ids", prop("duplicate-event-ids"), "none", [(None, "green"), (1, "orange")],
+                          "An event_id stored twice at different offsets: a retry later than the 60-minute "
+                          "de-duplication window. A limit of the retry contract; not alerted.", 0), 6, 5))
+    P.append(L.place(timeseries("Problems found per run", [
+        (prop("missing"), "missing"), (prop("duplicated-offsets"), "stored twice"),
+        (prop("duplicate-event-ids"), "duplicate event ids")], "short",
+        "Each step is a reconciliation run; the values hold until the next one."), 12, 8))
+    P.append(L.place(timeseries("Offsets per run", [
+        (prop("checked-offsets"), "checked"), (prop("skipped-duplicate"), "skipped: duplicate"),
+        (prop("skipped-undecodable"), "skipped: undecodable"), (prop("replayed"), "replayed")], "short"), 12, 8))
+    P.append(L.row("Flink: records set aside"))
+    P.append(L.place(timeseries("Set aside per 5 minutes", [
+        (f"sum(increase(flink_taskmanager_job_task_operator_deserializer_deserializationErrors{{{FLINK_JOB}}}[5m]))",
+         "undecodable"),
+        (f"sum(increase(flink_taskmanager_job_task_operator_duplicatesDropped{{{FLINK_JOB}}}[5m]))",
+         "duplicate copies")], "short",
+        "Live counters from the job; the reconciliation confirms them later from the tables."), 12, 8))
+    P.append(L.place(stat("Undecodable (15m)",
+                          f"sum(increase(flink_taskmanager_job_task_operator_deserializer_deserializationErrors"
+                          f"{{{FLINK_JOB}}}[15m])) or vector(0)", "none", [(None, "green"), (1, "orange")],
+                          "FlinkRecordsUndecodable fires above 0.", 0), 6, 8))
+    P.append(L.place(stat("Duplicate copies dropped (1h)",
+                          f"sum(increase(flink_taskmanager_job_task_operator_duplicatesDropped{{{FLINK_JOB}}}[1h]))"
+                          " or vector(0)", "none", description="Retries with an event_id Flink had already seen.",
+                          decimals=0), 6, 8))
+    P.append(L.place(logs("Undecodable records (Flink log)",
+                          '{namespace="apps", app="events-to-iceberg"} |= "Undecodable record at"',
+                          "One line per record set aside, with its partition, offset and error."), 24, 8))
+
+
 DASHBOARDS = {
     "overview": ("lakehouse-overview", "Lakehouse / Overview",
                  "Service level, pipeline flow and platform health at a glance.", overview),
@@ -260,6 +328,9 @@ DASHBOARDS = {
               "Replication health, controller quorum and traffic of the Strimzi Kafka cluster.", kafka),
     "tables": ("lakehouse-tables", "Lakehouse / Tables",
                "Iceberg table health (iceberg-exporter) and the Spark maintenance jobs.", tables),
+    "integrity": ("lakehouse-integrity", "Lakehouse / Integrity",
+                  "Every Kafka offset accounted for: the hourly reconciliation, replays, and records Flink set aside.",
+                  integrity),
 }
 
 

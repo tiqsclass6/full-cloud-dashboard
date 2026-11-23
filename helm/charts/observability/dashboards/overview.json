@@ -56,7 +56,7 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
+        "w": 5,
         "x": 0,
         "y": 1
       },
@@ -119,8 +119,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 6,
+        "w": 5,
+        "x": 5,
         "y": 1
       },
       "id": 3,
@@ -181,8 +181,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 12,
+        "w": 5,
+        "x": 10,
         "y": 1
       },
       "id": 4,
@@ -217,6 +217,65 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "Kafka offsets the last reconciliation found in neither events nor events_skipped (Lakehouse / Integrity).",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 15,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(iceberg_table_snapshot_property{table=\"lakehouse.events_reconciliation\", property=\"lakehouse.missing\"})",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Records missing",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "",
       "fieldConfig": {
         "defaults": {
@@ -239,11 +298,11 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 18,
+        "w": 4,
+        "x": 20,
         "y": 1
       },
-      "id": 5,
+      "id": 6,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
@@ -278,7 +337,7 @@
         "x": 0,
         "y": 6
       },
-      "id": 6,
+      "id": 7,
       "panels": [],
       "title": "Pipeline",
       "type": "row"
@@ -311,7 +370,7 @@
         "x": 0,
         "y": 7
       },
-      "id": 7,
+      "id": 8,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -374,7 +433,7 @@
         "x": 12,
         "y": 7
       },
-      "id": 8,
+      "id": 9,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -431,7 +490,7 @@
         "x": 0,
         "y": 15
       },
-      "id": 9,
+      "id": 10,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
@@ -489,7 +548,7 @@
         "x": 6,
         "y": 15
       },
-      "id": 10,
+      "id": 11,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
@@ -543,7 +602,7 @@
         "x": 12,
         "y": 15
       },
-      "id": 11,
+      "id": 12,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
@@ -601,7 +660,7 @@
         "x": 18,
         "y": 15
       },
-      "id": 12,
+      "id": 13,
       "options": {
         "colorMode": "background",
         "graphMode": "area",

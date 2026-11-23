@@ -1,6 +1,6 @@
 # **Runbook: Iceberg tables and Spark jobs**
 
-Alerts from the `iceberg`, `integrity` and `platform` groups in `helm/charts/observability/rules/lakehouse.yaml`. Dashboard: **Lakehouse / Tables**. Table health comes from the iceberg-exporter (`apps/iceberg-exporter`).
+Alerts from the `iceberg`, `integrity` and `platform` groups in `helm/charts/observability/rules/lakehouse.yaml`. Dashboards: **Lakehouse / Tables**; for the `integrity` group, **Lakehouse / Integrity**. Table health comes from the iceberg-exporter (`apps/iceberg-exporter`).
 
 ## **IcebergExporterDown**
 

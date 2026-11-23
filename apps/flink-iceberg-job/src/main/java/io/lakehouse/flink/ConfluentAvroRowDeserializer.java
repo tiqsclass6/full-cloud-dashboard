@@ -63,6 +63,16 @@ public final class ConfluentAvroRowDeserializer implements Serializable {
 
     /** Decodes into a row of {@code arity} fields: the table columns first, the rest left null for the caller. */
     public GenericRowData decode(byte[] message, int arity) throws IOException {
+        GenericRecord record = decodeRecord(message);
+        try {
+            return toRow(record, arity);
+        } catch (RuntimeException e) {
+            throw new PoisonRecordException(e.toString(), e);
+        }
+    }
+
+    /** The Avro record, read with its writer schema (the replay tool sends it on as JSON). */
+    public GenericRecord decodeRecord(byte[] message) throws IOException {
         if (writerSchemas == null) {
             init();
         }
@@ -72,9 +82,8 @@ public final class ConfluentAvroRowDeserializer implements Serializable {
         int schemaId = ByteBuffer.wrap(message, 1, 4).getInt();
         Schema writer = writerSchema(schemaId);
         try {
-            GenericRecord record = new GenericDatumReader<GenericRecord>(writer)
+            return new GenericDatumReader<GenericRecord>(writer)
                     .read(null, DecoderFactory.get().binaryDecoder(message, 5, message.length - 5, null));
-            return toRow(record, arity);
         } catch (IOException | RuntimeException e) {
             throw new PoisonRecordException(e.toString(), e);
         }
@@ -116,7 +125,7 @@ public final class ConfluentAvroRowDeserializer implements Serializable {
     }
 
     /** The registry could not answer (unreachable, timeout, 5xx, 429). */
-    static final class RegistryUnavailableException extends IOException {
+    public static final class RegistryUnavailableException extends IOException {
         private static final long serialVersionUID = 1L;
 
         RegistryUnavailableException(String message, Throwable cause) {
@@ -125,7 +134,7 @@ public final class ConfluentAvroRowDeserializer implements Serializable {
     }
 
     /** The record itself cannot become a row (not Avro, unknown schema, a required column missing). */
-    static final class PoisonRecordException extends IOException {
+    public static final class PoisonRecordException extends IOException {
         private static final long serialVersionUID = 1L;
 
         PoisonRecordException(String message, Throwable cause) {

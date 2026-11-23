@@ -34,11 +34,12 @@ def _lit(ts: datetime) -> str:
     return "TIMESTAMP '" + ts.strftime("%Y-%m-%d %H:%M:%S") + "'"
 
 
-def store(spark, table, partition, offset, ts, event_id=None, source="host-1", lineage=True):
+def store(spark, table, partition, offset, ts, event_id=None, source="host-1", lineage=True, replayed_from=None):
     event_id = event_id or f"e-{partition}-{offset}"
     p, o, k = (partition, offset, _lit(ts)) if lineage else ("NULL", "NULL", "NULL")
+    attrs = f"map('{reconcile.REPLAY_MARKER}', '{replayed_from}')" if replayed_from else "map()"
     spark.sql(f"""INSERT INTO {table} VALUES ('{event_id}', '{source}', 'cpu', {_lit(ts)}, {_lit(ts)}, 1.0,
-                  map(), {p}, {o}, {k})""")
+                  {attrs}, {p}, {o}, {k})""")
 
 
 def skip(spark, table, partition, offset, ts, reason, event_id=None):
@@ -149,3 +150,45 @@ def test_a_timestamp_skewed_past_the_slack_shows_as_missing(spark, tables):
     s = run(spark, tables)
 
     assert s["missing"] == 1 and s["missing_ranges"] == ["p0:1-1"]
+
+
+def _ms(ts):
+    return int(ts.timestamp() * 1000)
+
+
+def test_a_replay_accounts_for_the_offset_it_replaces(spark, tables):
+    store(spark, tables["events"], 0, 0, T0)
+    lost = T0 + timedelta(minutes=1)
+    store(spark, tables["events"], 0, 2, T0 + timedelta(minutes=2))
+    # The replay tool re-sent offset 1 through the API; it came back as offset 3, carrying the marker.
+    store(spark, tables["events"], 0, 3, T0 + timedelta(minutes=90), event_id="e-0-1",
+          replayed_from=f"0:1:{_ms(lost)}")
+
+    s = run(spark, tables, end=T0 + timedelta(hours=3))
+
+    assert (s["checked_offsets"], s["missing"], s["replayed"], s["duplicated_offsets"]) == (4, 0, 1, 0)
+    assert spark.table(tables["target"]).first()["replayed"] == 1
+
+
+def test_a_replayed_undecodable_record_is_not_counted_twice(spark, tables):
+    store(spark, tables["events"], 0, 0, T0)
+    skip(spark, tables["skipped"], 0, 1, T0 + timedelta(minutes=1), "undecodable")
+    store(spark, tables["events"], 0, 2, T0 + timedelta(minutes=2), event_id="fixed",
+          replayed_from=f"0:1:{_ms(T0 + timedelta(minutes=1))}")
+
+    s = run(spark, tables)
+
+    assert (s["checked_offsets"], s["missing"], s["duplicated_offsets"], s["replayed"]) == (3, 0, 0, 0)
+    assert s["skipped_undecodable"] == 1
+
+
+def test_adds_the_replayed_column_to_an_existing_result_table(spark, tables):
+    old_ddl = reconcile.TARGET_DDL.replace(", replayed: bigint>>", ">>").replace(",\n  replayed            bigint", "")
+    assert "replayed" not in old_ddl
+    spark.sql(old_ddl.format(target=tables["target"]))
+    store(spark, tables["events"], 0, 0, T0)
+
+    run(spark, tables)
+
+    row = spark.table(tables["target"]).first()
+    assert row["replayed"] == 0 and row["details"][0]["replayed"] == 0

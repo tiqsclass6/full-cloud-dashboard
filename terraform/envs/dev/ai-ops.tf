@@ -120,16 +120,12 @@ data "aws_iam_policy_document" "agentcore_gateway" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [aws_secretsmanager_secret.mcp_ca.arn]
   }
-  # The key is shared with S3 and RDS: usable only through AgentCore (Gateway configuration) and Secrets Manager.
+  # AgentCore calls KMS itself with this role (CloudTrail: source bedrock-agentcore.amazonaws.com), so a
+  # kms:ViaService condition never matches; the trust policy limits the role to this account's Gateway.
   statement {
-    sid       = "UseLakehouseKeyViaServices"
+    sid       = "UseLakehouseKey"
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"]
     resources = [aws_kms_key.lakehouse.arn]
-    condition {
-      test     = "StringEquals"
-      variable = "kms:ViaService"
-      values   = ["bedrock-agentcore.${var.region}.amazonaws.com", "secretsmanager.${var.region}.amazonaws.com"]
-    }
   }
   statement {
     sid       = "DescribeLakehouseKey"

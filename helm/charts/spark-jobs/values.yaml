@@ -11,12 +11,15 @@ serviceAccount: spark-operator-spark
 # Locally the schedules exist but are suspended so they do not use laptop memory on their own.
 suspend: true
 
+# cores = Spark task slots; coreRequest (optional) = the pod's CPU request, when the node has less to give than that.
 driver:
   cores: 1
+  coreRequest: ""
   memory: 1g
 executor:
   instances: 2
   cores: 1
+  coreRequest: ""
   memory: 1g
 
 # Extra Spark settings applied to every job (e.g. spark.sql.adaptive.enabled).

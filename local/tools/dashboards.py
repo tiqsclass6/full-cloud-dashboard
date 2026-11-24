@@ -132,13 +132,13 @@ def overview(L, P):
                           "none", [(None, "green"), (1, "red")]), 4, 5))
     P.append(L.row("Pipeline"))
     P.append(L.place(timeseries("Events in (per second)", [
-        ('sum(rate(ingest_events_total{outcome="published"}[2m]))', "published to Kafka"),
+        ('sum(rate(ingest_events_total{outcome="published"}[2m])) or vector(0)', "published to Kafka"),
         ('sum(rate(ingest_events_total{outcome!="published"}[2m])) or vector(0)', "not published")], "short"), 12, 8))
     P.append(L.place(timeseries("Flink consumer lag (events)", [
         ('sum(kafka_consumergroup_lag{consumergroup="flink-events-to-iceberg"} >= 0)', "lag")], "short"), 12, 8))
     P.append(L.place(stat("Flink job up", 'max(flink_jobmanager_job_uptime{job_name="events_to_iceberg"}) > bool 0',
                           "none", GREEN_RED), 6, 4))
-    P.append(L.place(stat("Kafka brokers up", 'count(up{job="monitoring/kafka-brokers"} == 1)', "none",
+    P.append(L.place(stat("Kafka brokers up", 'count(up{job="monitoring/kafka-brokers", pod!~".+-controllers-[0-9]+"} == 1)', "none",
                           [(None, "red"), (3, "green")]), 6, 4))
     P.append(L.place(stat("Argo CD apps healthy", 'count(argocd_app_info{health_status="Healthy"})', "none"), 6, 4))
     P.append(L.place(stat("Argo CD apps not synced", 'count(argocd_app_info{sync_status!="Synced"}) or vector(0)',
@@ -208,7 +208,7 @@ def pipeline(L, P):
 
 def kafka(L, P):
     P.append(L.row("Cluster health"))
-    P.append(L.place(stat("Brokers up", 'count(up{job="monitoring/kafka-brokers"} == 1)', "none",
+    P.append(L.place(stat("Brokers up", 'count(up{job="monitoring/kafka-brokers", pod!~".+-controllers-[0-9]+"} == 1)', "none",
                           [(None, "red"), (3, "green")]), 6, 5))
     P.append(L.place(stat("Under-replicated", "sum(kafka_server_replicamanager_underreplicatedpartitions)", "none",
                           [(None, "green"), (1, "orange")]), 6, 5))

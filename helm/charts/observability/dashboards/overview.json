@@ -388,7 +388,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(ingest_events_total{outcome=\"published\"}[2m]))",
+          "expr": "sum(rate(ingest_events_total{outcome=\"published\"}[2m])) or vector(0)",
           "legendFormat": "published to Kafka",
           "refId": "A"
         },
@@ -567,7 +567,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(up{job=\"monitoring/kafka-brokers\"} == 1)",
+          "expr": "count(up{job=\"monitoring/kafka-brokers\", pod!~\".+-controllers-[0-9]+\"} == 1)",
           "legendFormat": "",
           "refId": "A"
         }

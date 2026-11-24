@@ -170,3 +170,32 @@ A single run of the lab's Part 9, without the optional AgentCore Runtime (step 6
 
 - **AgentCore and anything the model does** (step 6 skipped).
 - **The new volume check** in `aws-down.sh`: written after the rerun and checked only on sample input, not through a teardown.
+
+## **Fourth run (2026-11-24, dev, data integrity on EKS)**
+
+A single run to check the integrity work since PR #9 (lineage, the reconciliation, replays, the Integrity dashboard) on the Glue catalog, without AgentCore Runtime (still no Bedrock access to Claude) and without `aws-security-test` or `aws-ai-test`. The environment existed from 23:14 to 02:55 UTC (3 h 41 min).
+
+| **Step**              | **Result**                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **`terraform apply`** | 165 resources in three applies: the first two stopped at the AgentCore Gateway (`kms:GenerateDataKey` denied)      |
+| **`aws-up`**          | First attempt stopped at the security gate (Spark image); the rerun with `DOCKER_BUILD_FLAGS=--no-cache` passed    |
+| **`aws-smoke`**       | Passed: brokers in 3 zones, RF=3, Flink RUNNING with IRSA, 5,000 events and 500 duplicate sends, Athena 5,000 rows |
+| **Integrity checks**  | Passed except one case (a lost first offset); [**integrity results**](integrity/README.md#on-eks-2026-11-24-dev)   |
+| **Dashboards**        | After the fixes below, every query of Integrity, Overview and Kafka returned data                                  |
+| **`aws-down`**        | Passed in 23 minutes: 165 destroyed, no leftovers (no volume left in `deleting` this time)                         |
+
+### **What the run found here (Fourth run)**
+
+- **The Gateway could not use the KMS key.** The policy allowed the key only with `kms:ViaService` (added 2026-11-14, first used now). CloudTrail shows AgentCore calling KMS itself with the role (source `bedrock-agentcore.amazonaws.com`), so the condition never matches; a longer IAM wait did not help. The condition is gone; the trust policy still limits the role to this account's Gateway.
+- **A cached image layer failed the security gate.** The Spark image runs `apt-get upgrade`, but Docker reused the layer from an earlier build, before Ubuntu fixed `linux-libc-dev` (73 HIGH/CRITICAL findings). `DOCKER_BUILD_FLAGS=--no-cache` rebuilt it clean. A rebuild before an AWS run needs `--no-cache` when the base image has not changed.
+- **No Spark job could start on dev.** The jobs requested 3 CPUs each, and the nodes had at most 635 millicores left to request; with no autoscaler the executors stayed `Pending`, the hourly schedules included. dev now requests 250 m per Spark pod (`helm/values/dev.yaml`).
+- **Argo CD had no metrics on a fresh cluster.** The chart creates its ServiceMonitors only if the CRD exists, and on a fresh cluster the CRD comes later with kube-prometheus-stack. The Overview's Argo CD tiles were empty, and `ArgoCDAppOutOfSync` and `ArgoCDAppDegraded` had no data. This follows from the chart for any fresh install; it was seen on EKS (kind has the metrics, presumably from a later upgrade of Argo CD). `gitops-bootstrap.sh` now upgrades Argo CD once more after kube-prometheus-stack is healthy.
+- **`KafkaBrokerDown` counted controllers as brokers.** AWS runs three dedicated controllers, scraped by the same job, so the count was 6 and one lost broker left 5 (the alert fires below 3). The rule and the dashboards now leave out the `controllers` pool; a promtool case covers the AWS layout.
+- **"Events in, published" showed no data** after the HPA removed the pod that had taken the traffic: the counter exists only after the first event. It now falls back to 0, like the other series.
+- **The replay pod copied the JobManager's IRSA variables.** EKS injects them again, with the token volume, so the pod now leaves them out (fixed before the run; replays worked on EKS).
+
+### **Not verified here (Fourth run)**
+
+- **AgentCore beyond creating the Gateway**, the model, Hermes, and the security and AI suites (not run).
+- **The second Argo CD pass in `gitops-bootstrap.sh`.** The same command was run by hand on this cluster; a fresh bootstrap has not run it.
+- **Spark jobs on dev under real load** with 250 m requests: the run had 5,000 rows.

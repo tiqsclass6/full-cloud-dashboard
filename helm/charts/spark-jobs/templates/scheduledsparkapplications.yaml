@@ -61,6 +61,23 @@ spec:
             - name: spark-kubernetes-driver
               securityContext:
                 {{- include "lakehouse.containerSecurityContext" (dict "writableRoot" true) | nindent 16 }}
+              {{- with $job.kafkaUser }}
+              # Only the driver talks to Kafka (offset lookups), with its own KafkaUser.
+              env:
+                - name: KAFKA_BOOTSTRAP_SERVERS
+                  value: {{ $.Values.global.kafka.bootstrapServers | quote }}
+                {{- include "lakehouse.kafkaClientEnv" (dict "root" $ "prefix" "KAFKA_CLIENT_" "user" .) | trim | nindent 16 }}
+              {{- with (include "lakehouse.kafkaClientVolumeMounts" (dict "root" $)) }}
+              volumeMounts:
+                {{- . | trim | nindent 16 }}
+              {{- end }}
+              {{- end }}
+          {{- with $job.kafkaUser }}
+          {{- with (include "lakehouse.kafkaClientVolumes" (dict "root" $ "user" .)) }}
+          volumes:
+            {{- . | trim | nindent 12 }}
+          {{- end }}
+          {{- end }}
     executor:
       instances: {{ $.Values.executor.instances }}
       cores: {{ $.Values.executor.cores }}

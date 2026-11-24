@@ -7,6 +7,9 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/
 ARG ICEBERG_VERSION=1.12.0
 ADD --chmod=0644 https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-4.1_2.13/${ICEBERG_VERSION}/iceberg-spark-runtime-4.1_2.13-${ICEBERG_VERSION}.jar /opt/spark/jars/
 ADD --chmod=0644 https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/${ICEBERG_VERSION}/iceberg-aws-bundle-${ICEBERG_VERSION}.jar /opt/spark/jars/
+# The reconcile reads Kafka's offset index (Admin client only; the same version as the ingestion service).
+ARG KAFKA_CLIENTS_VERSION=4.3.1
+ADD --chmod=0644 https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/${KAFKA_CLIENTS_VERSION}/kafka-clients-${KAFKA_CLIENTS_VERSION}.jar /opt/spark/jars/
 
 COPY lakehouse_jobs /opt/jobs/lakehouse_jobs
 COPY jobs/ /opt/jobs/

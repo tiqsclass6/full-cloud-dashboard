@@ -47,3 +47,4 @@ schedules:
     schedule: "20 * * * *"
     entry: reconcile
     args: ["--lookback-hours", "24", "--settle-minutes", "15", "--expected-interval-minutes", "60"]
+    kafkaUser: lakehouse-reconcile   # reads Kafka's offsets (helm/charts/kafka-cluster users)

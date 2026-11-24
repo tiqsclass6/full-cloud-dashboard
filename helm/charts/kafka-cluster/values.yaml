@@ -60,6 +60,13 @@ users:
         operations: [Read, Describe]
       - resource: {type: group, name: flink-events-to-iceberg, patternType: literal}
         operations: [Read, Describe]
+  lakehouse-reconcile:        # the Spark reconcile: offset lookups only, no records
+    shareWithClients: true
+    acls:
+      - resource: {type: topic, name: events.raw, patternType: literal}
+        operations: [Describe]
+      - resource: {type: group, name: flink-events-to-iceberg, patternType: literal}
+        operations: [Describe]
   kafka-admin:                # super user (see authorization); stays in the kafka namespace
     shareWithClients: false
     acls: []

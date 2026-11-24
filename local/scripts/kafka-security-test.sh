@@ -38,11 +38,13 @@ spec:
       volumeMounts:
         - {name: ingest, mountPath: /certs/ingestion-service, readOnly: true}
         - {name: flink, mountPath: /certs/events-to-iceberg, readOnly: true}
+        - {name: reconcile, mountPath: /certs/lakehouse-reconcile, readOnly: true}
         - {name: ca, mountPath: /certs/ca, readOnly: true}
         - {name: tmp, mountPath: /tmp}
   volumes:
     - {name: ingest, secret: {secretName: ingestion-service}}
     - {name: flink, secret: {secretName: events-to-iceberg}}
+    - {name: reconcile, secret: {secretName: lakehouse-reconcile}}
     - {name: ca, secret: {secretName: lakehouse-cluster-ca-cert}}
     - {name: tmp, emptyDir: {}}
 EOF
@@ -50,7 +52,7 @@ kc -n apps wait --for=condition=Ready "pod/${POD}" --timeout=180s >/dev/null && 
 
 # Client settings per identity, written inside the pod from the mounted secrets.
 kc -n apps exec "${POD}" -- bash -c '
-  for u in ingestion-service events-to-iceberg; do
+  for u in ingestion-service events-to-iceberg lakehouse-reconcile; do
     printf "%s\n" "security.protocol=SSL" "ssl.keystore.type=PKCS12" \
       "ssl.keystore.location=/certs/$u/user.p12" "ssl.keystore.password=$(cat /certs/$u/user.password)" \
       "ssl.truststore.type=PKCS12" "ssl.truststore.location=/certs/ca/ca.p12" \
@@ -90,6 +92,16 @@ expect "cannot use another consumer group" "GroupAuthorizationException|Not auth
   "$(run events-to-iceberg kafka-console-consumer.sh --topic events.raw --group not-flink --max-messages 1 --timeout-ms 15000)"
 expect "can describe its own consumer group" "events\.raw" \
   "$(run events-to-iceberg kafka-consumer-groups.sh --describe --group flink-events-to-iceberg)"
+
+log "lakehouse-reconcile (Describe on events.raw and on Flink's group: offsets only)"
+expect "can look up offsets of events.raw" "^events\.raw:0:[0-9]+" \
+  "$(run lakehouse-reconcile kafka-get-offsets.sh --topic events.raw)"
+expect "can read Flink's committed offsets" "events\.raw" \
+  "$(run lakehouse-reconcile kafka-consumer-groups.sh --describe --group flink-events-to-iceberg)"
+expect "cannot read records of events.raw" "TopicAuthorizationException|GroupAuthorizationException|Not authorized" \
+  "$(run lakehouse-reconcile kafka-console-consumer.sh --topic events.raw --group acl-test --max-messages 1 --timeout-ms 15000)"
+expect "cannot write events.raw" "TopicAuthorizationException|ClusterAuthorizationException|Not authorized" \
+  "$(echo denied | run lakehouse-reconcile kafka-console-producer.sh --topic events.raw --producer-property acks=all)"
 
 log "Unauthenticated access"
 expect "TLS without a client certificate is rejected" "SslAuthenticationException|SSL handshake failed|Failed authentication|TimeoutException" \

@@ -52,6 +52,11 @@ gitops_wait root 300
 for app in kube-prometheus-stack strimzi flink-operator spark-operator; do
   gitops_wait "${app}-${GITOPS_ENV}" 900
 done
+# The chart renders its ServiceMonitors only if the CRD exists; on a fresh cluster it arrives with kube-prometheus-stack.
+if ! kc -n argocd get servicemonitor -o name 2>/dev/null | grep -q .; then
+  hc upgrade argocd argo/argo-cd --version "${ARGOCD_CHART_VERSION}" --namespace argocd \
+    -f "${BOOT}/argocd-values.yaml" --wait --timeout 5m >/dev/null && ok "Argo CD ServiceMonitors created"
+fi
 gitops_wait "${GITOPS_APP}" 1800
 
 if is_kind; then

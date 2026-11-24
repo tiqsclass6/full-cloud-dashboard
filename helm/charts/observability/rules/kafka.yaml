@@ -3,8 +3,9 @@ groups:
   - name: kafka
     rules:
       - alert: KafkaBrokerDown
+        # The scrape job also covers AWS's dedicated controllers (pool "controllers"); kind's pool is dual-role.
         expr: |
-          count(up{job="monitoring/kafka-brokers"} == 1) < 3
+          count(up{job="monitoring/kafka-brokers", pod!~".+-controllers-[0-9]+"} == 1) < 3
         for: 2m
         labels:
           severity: critical

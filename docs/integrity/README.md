@@ -47,6 +47,25 @@ One run on kind, started 2026-11-20 01:32 UTC ([**raw result**](results/drill.js
 | **A second replay**                   | `ALREADY_REPLAYED`, nothing sent                                                             |
 | **Reconcile after the replay**        | 3,303 checked, 0 missing, 1 replayed (2,999 stored + 300 + 3 + 1)                            |
 
+## **On EKS (2026-11-24, dev)**
+One run on a fresh dev environment: Glue catalog, S3, Athena. `make aws-smoke` sent 5,000 events with 500 retried copies; then 3 non-Avro records straight to `events.raw`, a reconcile, and two losses made with an Athena `DELETE` and replayed with `replay.sh` (`KUBE_CONTEXT=lakehouse-dev`). The run is in [**aws.md**](../aws.md#fourth-run-2026-11-24-dev-data-integrity-on-eks).
+
+| **Check**                             | **Result**                                                                       |
+| ------------------------------------- | -------------------------------------------------------------------------------- |
+| **Lineage (Athena)**                  | 5,000 rows, 5,000 distinct partition-offset pairs                                |
+| **`events_skipped`**                  | 500 `duplicate`, 3 `undecodable`                                                 |
+| **Flink counters**                    | 3 undecodable, 500 duplicate copies; `FlinkRecordsUndecodable` firing            |
+| **Reconcile, ad hoc and on schedule** | 5,503 checked (5,000 + 500 + 3), 0 missing; 24.8 s                               |
+| **Replay of the undecodable records** | 3 of 3 `UNDECODABLE`, 0 sent                                                     |
+| **Loss of `p5:0`**                    | Not found: 5,502 checked, 0 missing (see What went wrong)                        |
+| **Loss of `p5:500`**                  | 1 missing, `p5:500-500`; `LakehouseRecordsMissing` firing 2 minutes later        |
+| **Replay of each lost row**           | Dry run `REPLAY`; applied, 1 sent; stored once with `replayed_from`              |
+| **A second replay**                   | `ALREADY_REPLAYED`, nothing sent                                                 |
+| **Reconcile after both replays**      | 5,505 checked, 0 missing, 2 replayed; alert inactive again                       |
+| **Lakehouse / Integrity dashboard**   | Every query returns data; Grafana serves it (17 panels) with Prometheus and Loki |
+
+The scheduled reconcile (hourly at :20) ran on its own once and gave the same totals as the ad-hoc run. The Spark schedules could only start after a change to dev's CPU requests (below).
+
 ## **How long the reconciliation takes**
 | **Table state (`events`, 1.25 M rows)** | **Reconcile, drill window** |
 | --------------------------------------- | --------------------------- |
@@ -76,13 +95,15 @@ On 2026-11-23, after a fresh start of the nodes and with Langfuse off, the last 
   - The replay pod failed: the Flink classes are not in the job's jar, so the pod now adds Flink's `lib/` to the classpath.
   - The runner then printed nothing, because a `grep` with no match ended the script (`set -e`). It now prints the pod's log when the pod fails.
   - One drill ran against the old Spark image (not rebuilt), so the reconcile did not count the replay and the drill failed. The recorded run is the next one.
+- **A lost first offset is not found** (EKS run, 2026-11-24). For each partition the check covers the lowest to the highest offset it finds in the tables, so losing the lowest one leaves no gap to find. On the fresh EKS topic the oldest row was offset 0 of partition 5: deleted, the check covered 5,502 offsets instead of 5,503 and reported nothing. On kind, older records always lay below the deleted one. It is the start-of-partition counterpart of the end-of-partition limit. A fix needs a lower bound from outside the tables: Kafka's earliest offset, or the previous run's last offset per partition. Not fixed; a loss in the middle of the partition was found.
+- **No Spark job could start on dev** (EKS run). Each job requested 3 CPUs (a driver and two executors at one core), and next to Kafka, Flink and the platform the three xlarge nodes had 25-635 millicores left to request. With no autoscaler, the executors stayed `Pending`, the hourly schedules included. The earlier AWS runs did not look at the schedules. dev now requests 250 m per Spark pod (`coreRequest`; no limit, so a job still uses idle CPU), and compaction, the aggregate and the reconcile then ran on schedule.
 - **The recorded run took 3 h 40 min instead of about 40 minutes.** The laptop went into standby on idle, which froze one reconcile for 3 h 16 min. It finished correctly after the wake-up. Long drills need standby off.
 
 ## **What this does not show**
-- EKS with the Glue catalog, and a table the size of a real day.
+- A table the size of a real day (EKS ran with 5,000 rows).
 - Replaying an undecodable record that decodes once its schema is fixed. The drill's records are not Avro, so they stay undecodable; the decision rules for that case are unit tests (`ReplayTest`).
-- `WAIT_FOR_DEDUPE_TTL`, `NOT_IN_KAFKA`, `EVENT_ID_STORED` and `NOT_SENDABLE` on a cluster: unit tests only. The replay of more than one record, and replays on EKS.
-- A loss at the very end of a partition. It is reported only once a later offset in that partition arrives.
-- The scheduled job. Locally it is suspended like the other Spark schedules; the drill ran it as one-off runs, which disarm the staleness alert. `LakehouseReconciliationStale` is covered by promtool tests only.
+- `WAIT_FOR_DEDUPE_TTL`, `NOT_IN_KAFKA`, `EVENT_ID_STORED` and `NOT_SENDABLE` on a cluster: unit tests only. The replay of more than one record at once.
+- A loss at the very end of a partition (reported only once a later offset in that partition arrives), and a loss of the lowest offset the tables hold for a partition (not reported; see What went wrong).
+- The scheduled job over time. Locally it is suspended like the other Spark schedules; the drill ran it as one-off runs, which disarm the staleness alert. On EKS it ran on schedule once. `LakehouseReconciliationStale` is covered by promtool tests only.
 - The ops agent's handling of the new alerts (live model runs are blocked, see [**ai-ops.md**](../ai-ops.md#not-verified)).
 - Single runs.

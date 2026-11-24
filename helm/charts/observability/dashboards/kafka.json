@@ -78,7 +78,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(up{job=\"monitoring/kafka-brokers\"} == 1)",
+          "expr": "count(up{job=\"monitoring/kafka-brokers\", pod!~\".+-controllers-[0-9]+\"} == 1)",
           "legendFormat": "",
           "refId": "A"
         }

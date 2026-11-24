@@ -17,6 +17,8 @@ JM="$(kc -n apps get pods -l app=events-to-iceberg,component=jobmanager -o name 
 ARGS="$(printf '%s\n' "$@" | jq -R . | jq -s .)"
 kc -n apps get "${JM}" -o json | jq --arg name "${POD}" --argjson args "${ARGS}" '
   .spec.containers[0] as $c
+  # Set at admission (Flink, and on EKS the IRSA webhook, whose token volume is not copied): the replay pod gets its own.
+  | ["_POD_IP_ADDRESS", "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_STS_REGIONAL_ENDPOINTS", "AWS_DEFAULT_REGION"] as $injected
   | ([$c.volumeMounts[] | select(.mountPath | startswith("/etc/kafka-client/"))]) as $mounts
   | {apiVersion: "v1", kind: "Pod",
      metadata: {name: $name, namespace: "apps", labels: {app: "lakehouse-replay"}},
@@ -31,7 +33,7 @@ kc -n apps get "${JM}" -o json | jq --arg name "${POD}" --argjson args "${ARGS}"
          image: $c.image,
          imagePullPolicy: "IfNotPresent",
          command: (["java", "-Xmx512m", "-cp", "/opt/flink/usrlib/job.jar:/opt/flink/lib/*", "io.lakehouse.flink.ReplayTool"] + $args),
-         env: ([$c.env[] | select(.name != "_POD_IP_ADDRESS")] + [{name: "INGEST_URL", value: "http://ingestion-service.apps.svc:8080/v1/events"}]),
+         env: ([$c.env[] | select(.name | IN($injected[]) | not)] + [{name: "INGEST_URL", value: "http://ingestion-service.apps.svc:8080/v1/events"}]),
          volumeMounts: $mounts,
          securityContext: $c.securityContext,
          resources: {requests: {cpu: "200m", memory: "768Mi"}, limits: {memory: "768Mi"}}

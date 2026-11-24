@@ -169,6 +169,34 @@ tests:
               description: "Only 2 of 3 brokers are reachable; the cluster tolerates one loss."
               runbook_url: docs/runbooks/kafka.md#kafkabrokerdown
 
+  - name: on AWS the dedicated controllers do not count as brokers
+    interval: 1m
+    input_series:
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-controllers-3"}'
+        values: '1x10'
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-controllers-4"}'
+        values: '1x10'
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-controllers-5"}'
+        values: '1x10'
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-brokers-0"}'
+        values: '1x10'
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-brokers-1"}'
+        values: '1x10'
+      - series: 'up{job="monitoring/kafka-brokers", pod="lakehouse-brokers-2"}'
+        values: '1 1 0 0 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: KafkaBrokerDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: KafkaBrokerDown
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: A Kafka broker is down
+              description: "Only 2 of 3 brokers are reachable; the cluster tolerates one loss."
+              runbook_url: docs/runbooks/kafka.md#kafkabrokerdown
+
   - name: a table that was never compacted cannot be overdue
     interval: 5m
     input_series:

@@ -48,6 +48,9 @@ spec:
     # Pod Security restricted via Spark pod templates: the operator's securityContext fields need its disabled webhook.
     driver:
       cores: {{ $.Values.driver.cores }}
+      {{- with $.Values.driver.coreRequest }}
+      coreRequest: {{ . | quote }}
+      {{- end }}
       memory: {{ $.Values.driver.memory }}
       serviceAccount: {{ $.Values.serviceAccount }}
       template:
@@ -61,6 +64,9 @@ spec:
     executor:
       instances: {{ $.Values.executor.instances }}
       cores: {{ $.Values.executor.cores }}
+      {{- with $.Values.executor.coreRequest }}
+      coreRequest: {{ . | quote }}
+      {{- end }}
       memory: {{ $.Values.executor.memory }}
       # Executors read and write data files too, so they need the same identity (IRSA on AWS).
       serviceAccount: {{ $.Values.serviceAccount }}

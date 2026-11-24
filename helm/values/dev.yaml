@@ -37,3 +37,11 @@ ingestion-service:
   autoscaling:
     minReplicas: 2
     maxReplicas: 4
+
+# Three xlarge nodes have no CPU left to request next to Kafka and Flink (no autoscaler): small requests,
+# the jobs still use idle CPU (no limit). 3 cores requested sat Pending on 2026-11-24.
+spark-jobs:
+  driver:
+    coreRequest: "250m"
+  executor:
+    coreRequest: "250m"

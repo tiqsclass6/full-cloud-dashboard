@@ -175,14 +175,14 @@ A single run of the lab's Part 9, without the optional AgentCore Runtime (step 6
 
 A single run to check the integrity work since PR #9 (lineage, the reconciliation, replays, the Integrity dashboard) on the Glue catalog, without AgentCore Runtime (still no Bedrock access to Claude) and without `aws-security-test` or `aws-ai-test`. The environment existed from 23:14 to 02:55 UTC (3 h 41 min).
 
-| **Step**              | **Result**                                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **`terraform apply`** | 165 resources in three applies: the first two stopped at the AgentCore Gateway (`kms:GenerateDataKey` denied)      |
-| **`aws-up`**          | First attempt stopped at the security gate (Spark image); the rerun with `DOCKER_BUILD_FLAGS=--no-cache` passed    |
-| **`aws-smoke`**       | Passed: brokers in 3 zones, RF=3, Flink RUNNING with IRSA, 5,000 events and 500 duplicate sends, Athena 5,000 rows |
-| **Integrity checks**  | Passed except one case (a lost first offset); [**integrity results**](integrity/README.md#on-eks-2026-11-24-dev)   |
-| **Dashboards**        | After the fixes below, every query of Integrity, Overview and Kafka returned data                                  |
-| **`aws-down`**        | Passed in 23 minutes: 165 destroyed, no leftovers (no volume left in `deleting` this time)                         |
+| **Step**              | **Result**                                                                                                                                |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **`terraform apply`** | 165 resources in three applies: the first two stopped at the AgentCore Gateway (`kms:GenerateDataKey` denied)                             |
+| **`aws-up`**          | First attempt stopped at the security gate (Spark image); the rerun with `DOCKER_BUILD_FLAGS=--no-cache` passed                           |
+| **`aws-smoke`**       | Passed: brokers in 3 zones, RF=3, Flink RUNNING with IRSA, 5,000 events and 500 duplicate sends, Athena 5,000 rows                        |
+| **Integrity checks**  | Passed except one case (a lost first offset, fixed since by ADR 0013); [**integrity results**](integrity/README.md#on-eks-2026-11-24-dev) |
+| **Dashboards**        | After the fixes below, every query of Integrity, Overview and Kafka returned data                                                         |
+| **`aws-down`**        | Passed in 23 minutes: 165 destroyed, no leftovers (no volume left in `deleting` this time)                                                |
 
 ### **What the run found here (Fourth run)**
 

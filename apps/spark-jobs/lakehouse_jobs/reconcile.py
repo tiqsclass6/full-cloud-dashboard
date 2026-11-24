@@ -2,11 +2,16 @@
 
 The ingestion producer is idempotent and not transactional, so each partition's offsets are dense: a missing
 offset is a record Kafka acknowledged (the API answered 200) that never reached the lakehouse.
+
+Which offsets to check comes from Kafka, not from the tables (a lost first or last record leaves no gap in the
+tables to find): per partition, from the first offset at or after the window start to the last one before the
+window end, but no further than Flink's committed offset (records Flink has not committed are late, not lost).
 """
 import argparse
+import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Mapping, Optional
 
 from pyspark import StorageLevel
 from pyspark.sql import DataFrame, SparkSession, Window
@@ -24,6 +29,11 @@ PROPERTY_PREFIX = "lakehouse."
 # an event replaces, so the replayed copy accounts for the original offset.
 REPLAY_MARKER = "lakehouse.replayed_from"
 MAX_RANGES = 100
+DEFAULT_TOPIC = "events.raw"
+DEFAULT_GROUP = "flink-events-to-iceberg"
+# KAFKA_CLIENT_SECURITY_PROTOCOL=SSL sets security.protocol, as in the Flink job (prefix stripped, _ to .).
+KAFKA_CLIENT_PREFIX = "KAFKA_CLIENT_"
+KAFKA_TIMEOUT_SECONDS = 60
 
 TARGET_DDL = """
 CREATE TABLE IF NOT EXISTS {target} (
@@ -69,12 +79,68 @@ def window_offsets(spark: SparkSession, events: str, skipped: str, start: dateti
         WHERE kafka_timestamp >= TIMESTAMP '{lo}' AND attributes['{REPLAY_MARKER}'] IS NOT NULL""")
 
 
-def offset_ranges(offsets: DataFrame, start: datetime, end: datetime) -> list:
-    """Per partition, the first and last offset whose Kafka timestamp is in [start, end): [(p, lo, hi), ...]."""
-    lo, hi = utc_timestamp_literal(start), utc_timestamp_literal(end)
-    return [(r["p"], r["lo"], r["hi"]) for r in
-            offsets.where(f"ts >= TIMESTAMP '{lo}' AND ts < TIMESTAMP '{hi}'")
-            .groupBy("p").agg(F.min("o").alias("lo"), F.max("o").alias("hi")).collect()]
+def kafka_client_properties(env: Mapping[str, str]) -> dict:
+    props = {"bootstrap.servers": env.get("KAFKA_BOOTSTRAP_SERVERS", "lakehouse-kafka-bootstrap.kafka.svc:9093")}
+    for key, value in env.items():
+        if key.startswith(KAFKA_CLIENT_PREFIX):
+            props[key[len(KAFKA_CLIENT_PREFIX):].lower().replace("_", ".")] = value
+    return props
+
+
+def offset_ranges(bounds: Mapping[int, tuple]) -> tuple:
+    """`bounds`: partition -> (first offset at or after the start, first offset at or after the end, Flink's
+    committed offset or None). Returns ([(p, lo, hi), ...] with hi inclusive, partitions capped by Flink)."""
+    ranges, capped = [], 0
+    for p in sorted(bounds):
+        lo, end, committed = bounds[p]
+        stop = end if committed is None else min(end, committed)
+        capped += int(committed is not None and committed < end)
+        if stop > lo:
+            ranges.append((p, lo, stop - 1))
+    return ranges, capped
+
+
+def kafka_bounds(spark: SparkSession, props: Mapping[str, str], topic: str, group: str, start: datetime,
+                 end: datetime) -> dict:
+    """Kafka's offset index through the Java client in the driver (Admin: Describe on the topic and the group)."""
+    jvm = spark.sparkContext._jvm
+    unit = jvm.java.util.concurrent.TimeUnit.SECONDS
+    config = jvm.java.util.Properties()
+    for key, value in props.items():
+        config.setProperty(key, value)
+    admin = jvm.org.apache.kafka.clients.admin.Admin.create(config)
+    try:
+        described = admin.describeTopics(jvm.java.util.Collections.singletonList(topic)) \
+            .allTopicNames().get(KAFKA_TIMEOUT_SECONDS, unit)
+        partitions = sorted(info.partition() for info in described.get(topic).partitions())
+        tps = {p: jvm.org.apache.kafka.common.TopicPartition(topic, p) for p in partitions}
+
+        def lookup(spec):
+            request = jvm.java.util.HashMap()
+            for tp in tps.values():
+                request.put(tp, spec)
+            result = admin.listOffsets(request).all().get(KAFKA_TIMEOUT_SECONDS, unit)
+            return {p: result.get(tp).offset() for p, tp in tps.items()}
+
+        spec = jvm.org.apache.kafka.clients.admin.OffsetSpec
+        latest = lookup(spec.latest())
+        # -1: no record at or after that time, so the range runs to the end of the partition.
+        at_start = {p: o if o >= 0 else latest[p] for p, o in lookup(spec.forTimestamp(_ms(start))).items()}
+        at_end = {p: o if o >= 0 else latest[p] for p, o in lookup(spec.forTimestamp(_ms(end))).items()}
+        committed_map = admin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata() \
+            .get(KAFKA_TIMEOUT_SECONDS, unit)
+        committed = {}
+        for p, tp in tps.items():
+            meta = committed_map.get(tp)
+            # No committed offset: Flink has not stored anything of this partition, so nothing is expected yet.
+            committed[p] = meta.offset() if meta is not None else at_start[p]
+        return {p: (at_start[p], at_end[p], committed[p]) for p in partitions}
+    finally:
+        admin.close()
+
+
+def _ms(ts: datetime) -> int:
+    return int(ts.timestamp() * 1000)
 
 
 def in_ranges(offsets: DataFrame, ranges: list) -> DataFrame:
@@ -97,9 +163,9 @@ def with_replays(offsets: DataFrame) -> DataFrame:
             .where("kind <> 'replayed' OR (_has_row = 0 AND _nth = 1)").drop("_has_row", "_nth"))
 
 
-def reconcile(offsets: DataFrame, start: datetime, end: datetime) -> dict:
-    """`offsets` (after `with_replays`) should be materialised: everything here derives from it."""
-    ranges = offset_ranges(offsets, start, end)
+def reconcile(offsets: DataFrame, ranges: list, end: datetime) -> dict:
+    """`offsets` (after `with_replays`) should be materialised: everything here derives from it. `ranges` come from
+    Kafka (`offset_ranges`)."""
     rows = in_ranges(offsets, ranges).cache()
     try:
         expected = sum(hi - lo + 1 for _, lo, hi in ranges)
@@ -111,9 +177,16 @@ def reconcile(offsets: DataFrame, start: datetime, end: datetime) -> dict:
         stored = rows.where("kind = 'stored'")
         duplicate_ids = stored.count() - stored.select("event_id").distinct().count()
 
-        # A hole before offset o: o - previous offset - 1 records missing, counted in o's hour.
+        # A hole before offset o: o - previous offset - 1 records missing, counted in o's hour. Each range gets an
+        # edge just outside it on both sides, so a hole at either end (or a range with no row at all) is found too;
+        # a hole at the end is counted in the window end's hour.
         w = Window.partitionBy("p").orderBy("o")
-        first_seen = rows.groupBy("p", "o").agg(F.min("ts").alias("ts"))
+        spark = offsets.sparkSession
+        edges = spark.createDataFrame(
+            [(p, o, end) for p, lo, hi in ranges for o in (lo - 1, hi + 1)],
+            T.StructType([T.StructField("p", T.IntegerType()), T.StructField("o", T.LongType()),
+                          T.StructField("ts", T.TimestampType())]))
+        first_seen = rows.groupBy("p", "o").agg(F.min("ts").alias("ts")).unionByName(edges)
         gaps = (first_seen.withColumn("prev", F.lag("o").over(w))
                 .withColumn("gap", F.col("o") - F.col("prev") - 1)
                 .where("gap > 0"))
@@ -131,13 +204,14 @@ def reconcile(offsets: DataFrame, start: datetime, end: datetime) -> dict:
                        F.count(F.when(F.col("kind") == "duplicate", 1)).alias("skipped_duplicate"),
                        F.count(F.when(F.col("kind") == "undecodable", 1)).alias("skipped_undecodable"),
                        F.count(F.when(F.col("kind") == "replayed", 1)).alias("replayed"))
-                  .join(missing_by_hour, ["p", "hour"], "left")
+                  .join(missing_by_hour, ["p", "hour"], "full")
                   .join(per_source, ["p", "hour"], "left")
-                  .select("hour", F.col("p").alias("kafka_partition"), "first_offset", "last_offset", "stored",
-                          "skipped_duplicate", "skipped_undecodable",
+                  .select("hour", F.col("p").alias("kafka_partition"), "first_offset", "last_offset",
+                          *[F.coalesce(c, F.lit(0)).alias(c)
+                            for c in ("stored", "skipped_duplicate", "skipped_undecodable")],
                           F.coalesce("missing", F.lit(0)).cast("bigint").alias("missing"),
                           F.coalesce("stored_by_source", F.create_map().cast("map<string,bigint>"))
-                          .alias("stored_by_source"), "replayed")
+                          .alias("stored_by_source"), F.coalesce("replayed", F.lit(0)).alias("replayed"))
                   .orderBy("hour", "kafka_partition"))
         return {
             "partitions": len(ranges),
@@ -185,18 +259,22 @@ def write_result(spark: SparkSession, target: str, run_at: datetime, start: date
 
 
 def run(spark: SparkSession, events: str, skipped: str, target: str, start: datetime, end: datetime,
-        expected_interval_seconds: int = 0, slack: timedelta = timedelta(hours=1)) -> dict:
+        bounds, expected_interval_seconds: int = 0, slack: timedelta = timedelta(hours=1)) -> dict:
+    """`bounds(start, end)` -> per-partition Kafka bounds (`kafka_bounds`). Called before the tables are read: a
+    Flink commit after the lookup then only adds rows, never an offset the lookup expects but the scan misses."""
     if end <= start:
         raise ValueError("end must be after start")
     started = time.monotonic()
+    ranges, capped = offset_ranges(bounds(start, end))
     # Read once and keep it: with persist(), Spark re-resolved the tables for each derived query and so missed the
     # cache, scanning again at a newer snapshot. A local checkpoint keeps no table in the plan to re-resolve.
     offsets = with_replays(window_offsets(spark, events, skipped, start, end, slack)).localCheckpoint(
         eager=True, storageLevel=StorageLevel.MEMORY_AND_DISK)
-    result = reconcile(offsets, start, end)
+    result = reconcile(offsets, ranges, end)
     run_at = datetime.now(timezone.utc)
     write_result(spark, target, run_at, start, end, result, expected_interval_seconds)
     summary = {k: v for k, v in result.items() if k != "details"}
+    summary["partitions_behind_flink"] = capped
     summary.update({"target": target, "window_start": start.isoformat(), "window_end": end.isoformat(),
                     "seconds": round(time.monotonic() - started, 1)})
     return summary
@@ -219,6 +297,8 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
                    help="how far out of offset order Kafka timestamps may be (producer clock skew)")
     p.add_argument("--expected-interval-minutes", type=float, default=0,
                    help="how often the schedule runs this job; 0 for a one-off run (disarms the staleness alert)")
+    p.add_argument("--topic", default=DEFAULT_TOPIC)
+    p.add_argument("--consumer-group", default=DEFAULT_GROUP, help="Flink's group: its committed offsets cap the range")
     p.add_argument("--start", help="ISO timestamp; with --end overrides the lookback")
     p.add_argument("--end", help="ISO timestamp (exclusive)")
     return p.parse_args(argv)
@@ -235,7 +315,9 @@ def main(argv: Optional[list] = None) -> None:
         end = now - timedelta(minutes=args.settle_minutes)
         start = end - timedelta(hours=args.lookback_hours)
     spark = build_session("lakehouse-reconcile")
+    props = kafka_client_properties(os.environ)
     summary = run(spark, args.events, args.skipped, args.target, start, end,
+                  lambda s, e: kafka_bounds(spark, props, args.topic, args.consumer_group, s, e),
                   int(args.expected_interval_minutes * 60), timedelta(minutes=args.timestamp_slack_minutes))
     emit_summary("reconcile", summary)
     spark.stop()

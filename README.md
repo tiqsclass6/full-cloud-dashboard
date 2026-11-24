@@ -93,7 +93,7 @@ How the requirements of a senior staff data-platform role map to this repository
 
 | **Requirement**                                | **Where**                                                                                                                          | **Evidence**                                                                                                                 |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Distributed systems design**                 | [**ADRs 0001-0012**](docs/architecture-decisions/), [**architecture**](docs/diagrams/README.md)                                    | Each decision with its alternatives and consequences; failure modes tested by chaos experiments                              |
+| **Distributed systems design**                 | [**ADRs 0001-0013**](docs/architecture-decisions/), [**architecture**](docs/diagrams/README.md)                                    | Each decision with its alternatives and consequences; failure modes tested by chaos experiments                              |
 | **Java, JVM internals, GC, profiling**         | [**`apps/ingestion-service`**](apps/ingestion-service/README.md), [**`apps/flink-iceberg-job`**](apps/flink-iceberg-job/README.md) | JFR profiles, G1 vs generational ZGC, an allocation hot spot found and removed ([**perf**](docs/performance/README.md))      |
 | **Concurrency, networking, OS**                | Ingestion service: virtual threads, bounded in-flight work (429), JDK HTTP server; open-loop load generator                        | Latency measured from intended send time; [**ADR 0003**](docs/architecture-decisions/0003-ingestion-service-design.md)       |
 | **Kafka at scale, HA**                         | [**`helm/charts/kafka-cluster`**](helm/charts/kafka-cluster): Strimzi, KRaft, 3 zones, RF=3, min ISR 2, rack awareness             | Broker isolation and zone outage without data loss ([**chaos**](docs/chaos/README.md))                                       |
@@ -191,7 +191,7 @@ full-cloud-dashboard-project/
 │   └── spark-jobs/               # PySpark: Iceberg maintenance and hourly aggregates
 ├── chaos/experiments/            # Chaos Mesh faults: broker isolation, latency, pod kill
 ├── docs/                         # Documentation (index.md)
-│   ├── architecture-decisions/   # ADRs 0001-0012
+│   ├── architecture-decisions/   # ADRs 0001-0013
 │   ├── chaos/                    # Chaos experiment results
 │   ├── diagrams/                 # Architecture diagrams and workflow infographics
 │   ├── lab/                      # Lab runbook (RUNBOOK.md) and screenshots (images/)

@@ -13,6 +13,27 @@ args_yaml=""
 for a in "$@"; do args_yaml+="    - \"${a}\""$'\n'; done
 extra_yaml=""
 while IFS='=' read -r k v; do [ -n "${k:-}" ] && extra_yaml+="    ${k}: \"${v}\""$'\n'; done <<< "${SPARK_CONF_EXTRA:-}"
+# The reconcile reads Kafka's offsets with its own KafkaUser, as the schedule does (helm/charts/spark-jobs).
+kafka_container_yaml=""; kafka_volumes_yaml=""
+if [ "${ENTRY}" = "reconcile" ]; then
+  kafka_container_yaml="            env:
+              - {name: KAFKA_BOOTSTRAP_SERVERS, value: lakehouse-kafka-bootstrap.kafka.svc:9093}
+              - {name: KAFKA_CLIENT_SECURITY_PROTOCOL, value: SSL}
+              - {name: KAFKA_CLIENT_SSL_KEYSTORE_TYPE, value: PKCS12}
+              - {name: KAFKA_CLIENT_SSL_KEYSTORE_LOCATION, value: /etc/kafka-client/user/user.p12}
+              - {name: KAFKA_CLIENT_SSL_KEYSTORE_PASSWORD, valueFrom: {secretKeyRef: {name: lakehouse-reconcile, key: user.password}}}
+              - {name: KAFKA_CLIENT_SSL_TRUSTSTORE_TYPE, value: PKCS12}
+              - {name: KAFKA_CLIENT_SSL_TRUSTSTORE_LOCATION, value: /etc/kafka-client/ca/ca.p12}
+              - {name: KAFKA_CLIENT_SSL_TRUSTSTORE_PASSWORD, valueFrom: {secretKeyRef: {name: lakehouse-cluster-ca-cert, key: ca.password}}}
+            volumeMounts:
+              - {name: kafka-client-user, mountPath: /etc/kafka-client/user, readOnly: true}
+              - {name: kafka-client-ca, mountPath: /etc/kafka-client/ca, readOnly: true}
+"
+  kafka_volumes_yaml="        volumes:
+          - {name: kafka-client-user, secret: {secretName: lakehouse-reconcile}}
+          - {name: kafka-client-ca, secret: {secretName: lakehouse-cluster-ca-cert}}
+"
+fi
 
 kc -n apps delete sparkapplication "${NAME}" --ignore-not-found --wait=true >/dev/null
 kc -n apps apply -f - >/dev/null <<YAML
@@ -52,7 +73,7 @@ ${extra_yaml}  # Pod Security "restricted" (the apps namespace enforces it), set
         containers:
           - name: spark-kubernetes-driver
             securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: false, capabilities: {drop: ["ALL"]}}
-  executor:
+${kafka_container_yaml}${kafka_volumes_yaml}  executor:
     instances: ${EXECUTORS}
     cores: 1
     memory: ${EXECUTOR_MEMORY}

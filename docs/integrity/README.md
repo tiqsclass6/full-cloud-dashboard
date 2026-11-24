@@ -1,6 +1,6 @@
 # **Data integrity: every Kafka offset accounted for**
 
-How the platform shows that what the API accepted is what reached the lakehouse, and what happens to records it cannot store. Design: [**ADR 0011**](../architecture-decisions/0011-every-offset-accounted-for.md). Alerts: [**pipeline runbook**](../runbooks/pipeline.md#flinkrecordsundecodable), [**lakehouse runbook**](../runbooks/lakehouse.md#lakehouserecordsmissing). Dashboard: **Lakehouse / Integrity** in Grafana (the last run's totals, replays, and what Flink set aside).
+How the platform shows that what the API accepted is what reached the lakehouse, and what happens to records it cannot store. Design: [**ADR 0011**](../architecture-decisions/0011-every-offset-accounted-for.md), with the offset ranges from Kafka ([**ADR 0013**](../architecture-decisions/0013-reconcile-bounds-from-kafka.md)). Alerts: [**pipeline runbook**](../runbooks/pipeline.md#flinkrecordsundecodable), [**lakehouse runbook**](../runbooks/lakehouse.md#lakehouserecordsmissing). Dashboard: **Lakehouse / Integrity** in Grafana (the last run's totals, replays, and what Flink set aside).
 
 ## **Where a record can fail, and what happens**
 | **Stage**                         | **Failure**                                      | **What happens**                                                                                            |
@@ -15,7 +15,7 @@ How the platform shows that what the API accepted is what reached the lakehouse,
 | **Flink crash, node loss**        | Anything in flight                               | Restart from the last checkpoint; uncommitted files are discarded and re-written                            |
 | **Anything after Kafka, unknown** | A row lost or written twice                      | The hourly reconciliation finds the offset; `LakehouseRecordsMissing` or `LakehouseRecordsDuplicated` fires |
 
-The correlation key is the Kafka partition and offset. The API answers 200 only once Kafka has assigned one, and every row in `events` or `events_skipped` carries it. The producer is idempotent and not transactional, so a partition's offsets have no holes. A hole in the lakehouse is therefore a record that was acknowledged and then lost.
+The correlation key is the Kafka partition and offset. The API answers 200 only once Kafka has assigned one, and every row in `events` or `events_skipped` carries it. The producer is idempotent and not transactional, so a partition's offsets have no holes. A hole in the lakehouse is therefore a record that was acknowledged and then lost. Which offsets a run checks comes from Kafka's offset index: per partition, from the window start to the window end, but no further than Flink's committed offset.
 
 ## **Drill: `make local-test-integrity`**
 One run on kind, started 2026-11-20 01:32 UTC ([**raw result**](results/drill.json)). Steps:
@@ -57,7 +57,7 @@ One run on a fresh dev environment: Glue catalog, S3, Athena. `make aws-smoke` s
 | **Flink counters**                    | 3 undecodable, 500 duplicate copies; `FlinkRecordsUndecodable` firing            |
 | **Reconcile, ad hoc and on schedule** | 5,503 checked (5,000 + 500 + 3), 0 missing; 24.8 s                               |
 | **Replay of the undecodable records** | 3 of 3 `UNDECODABLE`, 0 sent                                                     |
-| **Loss of `p5:0`**                    | Not found: 5,502 checked, 0 missing (see What went wrong)                        |
+| **Loss of `p5:0`**                    | Not found: 5,502 checked, 0 missing (fixed since, see What went wrong)           |
 | **Loss of `p5:500`**                  | 1 missing, `p5:500-500`; `LakehouseRecordsMissing` firing 2 minutes later        |
 | **Replay of each lost row**           | Dry run `REPLAY`; applied, 1 sent; stored once with `replayed_from`              |
 | **A second replay**                   | `ALREADY_REPLAYED`, nothing sent                                                 |
@@ -95,15 +95,28 @@ On 2026-11-23, after a fresh start of the nodes and with Langfuse off, the last 
   - The replay pod failed: the Flink classes are not in the job's jar, so the pod now adds Flink's `lib/` to the classpath.
   - The runner then printed nothing, because a `grep` with no match ended the script (`set -e`). It now prints the pod's log when the pod fails.
   - One drill ran against the old Spark image (not rebuilt), so the reconcile did not count the replay and the drill failed. The recorded run is the next one.
-- **A lost first offset is not found** (EKS run, 2026-11-24). For each partition the check covers the lowest to the highest offset it finds in the tables, so losing the lowest one leaves no gap to find. On the fresh EKS topic the oldest row was offset 0 of partition 5: deleted, the check covered 5,502 offsets instead of 5,503 and reported nothing. On kind, older records always lay below the deleted one. It is the start-of-partition counterpart of the end-of-partition limit. A fix needs a lower bound from outside the tables: Kafka's earliest offset, or the previous run's last offset per partition. Not fixed; a loss in the middle of the partition was found.
+- **A lost first offset is not found** (EKS run, 2026-11-24). For each partition the check covers the lowest to the highest offset it finds in the tables, so losing the lowest one leaves no gap to find. On the fresh EKS topic the oldest row was offset 0 of partition 5: deleted, the check covered 5,502 offsets instead of 5,503 and reported nothing. On kind, older records always lay below the deleted one. It is the start-of-partition counterpart of the end-of-partition limit. A fix needs a lower bound from outside the tables: Kafka's earliest offset, or the previous run's last offset per partition. Fixed the same day ([**ADR 0013**](../architecture-decisions/0013-reconcile-bounds-from-kafka.md)): the range now comes from Kafka's offset index, so losses at either end are found (below).
 - **No Spark job could start on dev** (EKS run). Each job requested 3 CPUs (a driver and two executors at one core), and next to Kafka, Flink and the platform the three xlarge nodes had 25-635 millicores left to request. With no autoscaler, the executors stayed `Pending`, the hourly schedules included. The earlier AWS runs did not look at the schedules. dev now requests 250 m per Spark pod (`coreRequest`; no limit, so a job still uses idle CPU), and compaction, the aggregate and the reconcile then ran on schedule.
 - **The recorded run took 3 h 40 min instead of about 40 minutes.** The laptop went into standby on idle, which froze one reconcile for 3 h 16 min. It finished correctly after the wake-up. Long drills need standby off.
+
+## **Losses at the ends of a partition (2026-11-24, kind)**
+One run after ADR 0013 (a local script, not committed): 300 events through the API, a reconcile, then the lowest-offset row of one partition and the highest-offset row of another deleted with pyiceberg, a reconcile, both rows put back, a reconcile.
+
+| **Step**                           | **Result**                                                                         |
+| ---------------------------------- | ---------------------------------------------------------------------------------- |
+| **Before the deletes**             | 5 partitions, 300 checked, 0 missing, 0 partitions behind Flink                    |
+| **After the deletes**              | 300 checked, 2 missing: `p4:376883-376883` (lowest), `p3:278270-278270` (highest)  |
+| **After the restore**              | 300 checked, 0 missing                                                             |
+| **The hourly schedule's template** | Run once as a copy: 221 checked, 0 missing, the reconcile's Kafka identity mounted |
+
+The same deletes were not repeated with the old, table-derived ranges; there both rows sat at an edge of their partition's range, the position that left no hole on EKS. The lookup itself was also checked against a broker container (`apps/spark-jobs/run-kafka-it.sh`: window bounds, the cap at Flink's committed offset, a partition without a committed offset, an empty partition), and the new identity by `kafka-security-test.sh` (it can list offsets and read Flink's committed offsets, not read or write records).
 
 ## **What this does not show**
 - A table the size of a real day (EKS ran with 5,000 rows).
 - Replaying an undecodable record that decodes once its schema is fixed. The drill's records are not Avro, so they stay undecodable; the decision rules for that case are unit tests (`ReplayTest`).
 - `WAIT_FOR_DEDUPE_TTL`, `NOT_IN_KAFKA`, `EVENT_ID_STORED` and `NOT_SENDABLE` on a cluster: unit tests only. The replay of more than one record at once.
-- A loss at the very end of a partition (reported only once a later offset in that partition arrives), and a loss of the lowest offset the tables hold for a partition (not reported; see What went wrong).
+- A record lost after Flink's committed offset: it is checked only once Flink commits past it.
+- The Kafka-bounded check on EKS. It ran on kind and against a broker container.
 - The scheduled job over time. Locally it is suspended like the other Spark schedules; the drill ran it as one-off runs, which disarm the staleness alert. On EKS it ran on schedule once. `LakehouseReconciliationStale` is covered by promtool tests only.
 - The ops agent's handling of the new alerts (live model runs are blocked, see [**ai-ops.md**](../ai-ops.md#not-verified)).
 - Single runs.

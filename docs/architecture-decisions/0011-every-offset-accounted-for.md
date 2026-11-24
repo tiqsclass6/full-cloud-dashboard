@@ -1,6 +1,6 @@
 # **ADR 0011: Every Kafka offset is accounted for**
 
-- Status: accepted
+- Status: accepted; the offset ranges are amended by [**ADR 0013**](0013-reconcile-bounds-from-kafka.md)
 - Date: 2026-11-19
 
 ## **Context**
@@ -33,8 +33,7 @@ The API answers 200 only after every in-sync replica has the event. "Accepted by
 - **What a missing offset means.** Kafka has the record and the lakehouse does not. While it is within the topic's 7-day retention it can be replayed with `local/scripts/replay.sh`, which also re-sends undecodable records once they decode ([**ADR 0012**](0012-replay-through-the-api.md), added the same day). Nothing replays automatically.
 - **The check depends on dense offsets.** It needs a non-transactional producer and no compaction. A transactional producer would put commit markers on offsets, and the check would have to read Kafka's own offsets instead.
 - **What it cannot see.**
-  - A loss at the very end of a partition (no later offset yet) shows up only once a later record arrives.
-  - A loss of the lowest offset the tables hold for a partition in the window is not found (seen on EKS, 2026-11-24, at offset 0 of a fresh topic): the range starts at the lowest offset found. Closing it needs Kafka's earliest offset or the previous run's last one.
+  - A loss at either end of a partition's range: the range came from the tables, so a lost first or last row left no hole (seen on EKS, 2026-11-24, at offset 0 of a fresh topic). Closed by [**ADR 0013**](0013-reconcile-bounds-from-kafka.md), which takes the range from Kafka.
   - A record lost before Kafka acknowledged it has no offset; the source still holds it, because it never got a 200.
 - **Event-level duplicates outside the 60-minute de-duplication window** are counted (`duplicate_event_ids`) but not alerted on: they are a documented limit of the retry contract, not a pipeline fault.
 - **Cost.** `events_skipped` grows with retries (one row per duplicate copy) and with bad records. The reconciliation scans two columns of 24 hours of data every hour.

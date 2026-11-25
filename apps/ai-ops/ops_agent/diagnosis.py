@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
 from ops_agent.catalog import ACTIONS, PARAMETER_NAMES
 
@@ -69,6 +69,15 @@ def _strict(schema: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(item, dict):
                     _strict(item)
     return schema
+
+
+def for_tools(tool_names: tuple[str, ...]) -> type[Diagnosis]:
+    """The diagnosis with `evidence.tool` limited to these tools: structured output cannot then name anything else."""
+    if not tool_names:
+        return Diagnosis
+    evidence = create_model("Evidence", __base__=Evidence, tool=(Literal[tool_names],  # type: ignore[valid-type]
+                                                                Field(description=Evidence.model_fields["tool"].description)))
+    return create_model("Diagnosis", __base__=Diagnosis, evidence=(list[evidence], ...))  # type: ignore[valid-type]
 
 
 def output_schema() -> dict[str, Any]:

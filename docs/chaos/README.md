@@ -138,6 +138,18 @@ The question this answers: what happens to an event when the ingestion API fails
 - **`FlinkCheckpointFailures` was already firing** before the fault, left over from restarting the Flink job on its new image a few minutes earlier, and it resolved during the run. `InfoInhibitor` is kube-prometheus-stack's own helper alert. No forbidden alert fired.
 - **Server-made ids are gone.** Before this run the service generated an `event_id` when the source sent none, and a lost reply then made a duplicate that no part of the pipeline could detect. The service now rejects events without one (400), so this experiment sends only client-chosen ids.
 
+## **Broker isolation again, with the ops agent (2026-11-25)**
+
+Run with `CAPTURE=1` to record a new eval fixture for the ops agent ([**ai-ops.md**](../ai-ops.md#evals)); `docs/chaos/results/broker-isolation.json` now holds this run.
+
+| **Check**             | **Result**                                                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Events**            | 64,000 sent, 64,000 in Iceberg (0 missing, 0 duplicates); 1 retried batch, 50 duplicates dropped by Flink                                                                                  |
+| **Peak consumer lag** | 1,900                                                                                                                                                                                      |
+| **Recovery**          | 226 s after the fault ended                                                                                                                                                                |
+| **Alerts**            | KafkaBrokerDown 188 s, KafkaUnderReplicatedPartitions 345 s; LakehouseReconciliationStale and FlinkCheckpointFailures were already firing at the start (the cluster had just been started) |
+| **Ops agent (live)**  | `KafkaBrokerDown`: the isolated broker Running and Ready but cut off from the others, linked to the experiment; action `escalate`, no proposal                                             |
+
 ## **What these results do not show**
 
 - **Single runs.** Each experiment ran once after the harness was fixed, so the timings are examples, not distributions.

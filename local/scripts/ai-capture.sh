@@ -9,7 +9,8 @@ mkdir -p "${DIR}/alerts" "${DIR}/fixtures"
 
 if [ "${1:-}" = "--merge" ]; then
   SCENARIO="$2"
-  NAMES="$(jq -r '[.alerts[].labels.alertname] | unique | map("'" + . + "'") | join(",")' "${DIR}/alerts/${SCENARIO}.json")"
+  # SQL string literals: the quote comes in as $q (inside the single-quoted filter the shell would swallow it).
+  NAMES="$(jq -r --arg q "'" '[.alerts[].labels.alertname] | unique | map($q + . + $q) | join(",")' "${DIR}/alerts/${SCENARIO}.json" | tr -d '\r')"
   INV="$(kc -n data exec statefulset/postgres -- psql -U platform -d platform -tAc \
     "select id from ops.investigations where model <> 'test' and trigger->'alerts'->0->'labels'->>'alertname' in (${NAMES})
      order by started_at desc limit 1" | tr -d '\r')"

@@ -1,0 +1,193 @@
+{
+ "id": "1369d62b-ed6b-407f-b77c-2f43dd387407",
+ "trigger": {
+  "status": "firing",
+  "commonLabels": {
+   "alertname": "KafkaBrokerDown",
+   "severity": "critical"
+  },
+  "alerts": [
+   {
+    "status": "firing",
+    "labels": {
+     "alertname": "KafkaBrokerDown",
+     "prometheus": "monitoring/kps-prometheus",
+     "severity": "critical"
+    },
+    "annotations": {
+     "description": "Only 2 of 3 brokers are reachable; the cluster tolerates one loss.",
+     "runbook_url": "docs/runbooks/kafka.md#kafkabrokerdown",
+     "summary": "A Kafka broker is down"
+    },
+    "startsAt": "2026-11-25T07:09:48.794Z"
+   }
+  ]
+ },
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "started_at": 1795591266.665112,
+ "finished_at": 1795591326.6296134,
+ "outcome": "diagnosed",
+ "diagnosis": {
+  "summary": "Broker-2 (lakehouse-dual-role-2) is network-isolated: it is Running/Ready in Kubernetes but cannot resolve other brokers' DNS names, is not being scraped by Prometheus, and is causing 60 under-replicated partitions. A Chaos Mesh experiment deployed ~70 minutes ago and a mass pod-kill ~12 minutes ago are almost certainly the trigger. The cluster is still serving writes (0 offline, 0 under-min-ISR partitions) but has zero margin left.",
+  "root_cause_category": "kafka_replication_degraded",
+  "root_cause": "A Chaos Mesh network-fault or pod-kill experiment (chaos-mesh-local deployed 70 min ago, all broker/Flink pods killed with exit code 255 at the same time ~12 min ago) left broker-2 unable to resolve Kubernetes headless-service DNS for broker-0 (java.net.UnknownHostException on lakehouse-dual-role-0.lakehouse-kafka-brokers.kafka.svc). Broker-2 is Running/Ready per Kubernetes but isolated from the cluster: Prometheus cannot scrape it (brokers_scraped_up=false), it cannot replicate from broker-0, and 60 partitions are under-replicated (28 on broker-1, 32 on broker-0). The alert fires because only 2 of 3 brokers are reachable from Prometheus.",
+  "confidence": "high",
+  "impact": "No data loss yet \u2014 0 offline partitions, 0 under-min-ISR \u2014 but the cluster is at its failure tolerance limit. One more broker loss will stop all writes. Flink job has restarted and is RUNNING/STABLE but carries 800-message consumer lag and had 3 failed checkpoints in the last 10 minutes. 60 partitions are running with only 2 replicas in-sync.",
+  "evidence": [
+   {
+    "tool": "get_kafka_status",
+    "finding": "All 3 broker pods Running/Ready, but brokers_scraped_up=false for lakehouse-dual-role-2; under_replicated_partitions=60, under_min_isr=0, offline=0; consumer lag flink-events-to-iceberg=800. All 3 brokers last terminated 12.1 minutes ago with reason=Unknown, exit_code=255."
+   },
+   {
+    "tool": "get_pod_logs",
+    "finding": "Broker-2 logs show repeated java.net.UnknownHostException: lakehouse-dual-role-0.lakehouse-kafka-brokers.kafka.svc and Connection failed errors on both raft (port 9090) and replication (port 9091) channels. KRaft leader election timing out with 0 votes from peers."
+   },
+   {
+    "tool": "get_events",
+    "finding": "~10\u201312 minutes ago: readiness probe failures on ALL 3 brokers, strimzi-cluster-operator, entity-operator, and kafka-exporter simultaneously, plus a MountVolume configmap cache timeout on broker-1 \u2014 indicating a cluster-wide disruption, not an isolated broker crash."
+   },
+   {
+    "tool": "get_recent_changes",
+    "finding": "chaos-mesh-local was deployed 70.4 minutes ago (revision 2.8.5,7d448a789610) and platform-local 69.5 minutes ago. A prior chaos-mesh-local deploy was 163 minutes ago \u2014 pattern consistent with an active chaos experiment."
+   },
+   {
+    "tool": "query_prometheus",
+    "finding": "Under-replicated partition count jumped from 0 to 28 (broker-1) and 32 (broker-0) starting ~3 minutes into the last 10-minute window, and is staying flat (not recovering). Broker-2 series drops off after -240s \u2014 Prometheus scrape lost."
+   },
+   {
+    "tool": "get_flink_job_status",
+    "finding": "Flink job RUNNING/STABLE, restarted 10.4 min ago (same time as broker recovery), 7 prior restarts; 29 completed checkpoints in last 5 min, 3.02 failed checkpoints in last 10 min; consumer lag 800; no backpressure."
+   },
+   {
+    "tool": "search_runbooks",
+    "finding": "docs/runbooks/kafka.md#kafkabrokerdown: 'A broker that is Running and Ready but still not reachable \u2026 is cut off from the network, not crashed \u2026 Do not restart a broker that is cut off from the network: the restart does not reach the network fault, and it removes the evidence. Escalate to whoever owns the network.'"
+   }
+  ],
+  "proposed_action": {
+   "action": "escalate",
+   "parameters": {
+    "namespace": "",
+    "pod": "",
+    "table": ""
+   },
+   "rationale": "The runbook explicitly says not to restart a network-isolated broker because the restart cannot fix the network fault and destroys evidence. The DNS failure on broker-2 is almost certainly caused by an active or residual Chaos Mesh network-partition experiment. The fix requires a human to: (1) check the Chaos Mesh dashboard/CRDs for active NetworkChaos/PodChaos experiments and terminate them, (2) confirm DNS resolves correctly on broker-2 once chaos is cleared, and (3) verify broker-2 rejoins the ISR and under-replicated partitions return to 0. Automated restart is contraindicated by the runbook and by the evidence."
+  },
+  "runbook": "docs/runbooks/kafka.md#kafkabrokerdown",
+  "follow_ups": [
+   "Check Chaos Mesh CRDs for active experiments: kubectl get networkchaos,podchaos -A \u2014 stop any experiment targeting the kafka namespace or broker pods.",
+   "Once chaos is cleared, verify broker-2 DNS resolution recovers and under_replicated_partitions returns to 0 (should happen automatically as broker-2 rejoins ISR).",
+   "Confirm Flink consumer lag drains back to 0 after broker-2 is fully back in ISR.",
+   "Investigate why the chaos experiment caused a mass pod restart (exit code 255 / Unknown) across both kafka and apps namespaces simultaneously \u2014 check if a PodChaos kill was scoped too broadly.",
+   "Kafka exporter pod lakehouse-kafka-exporter-58c78bc654-8nxqd had repeated liveness/readiness failures during the event \u2014 verify it has fully recovered and is correctly reporting all 3 brokers.",
+   "Review chaos experiment scope to ensure it matches the intended blast radius; the simultaneous disruption of Flink, Strimzi operator, entity operator, and all 3 brokers suggests the experiment was broader than expected."
+  ]
+ },
+ "tool_calls": [
+  {
+   "seq": 1,
+   "tool": "get_kafka_status",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"strimzi\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\",\"reason\":null,\"message\":\"\"}],\"kafka_version\":\"4.3.1\"},\"brokers\":[{\"name\":\"lakehouse-dual-role-0\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":22,\"node\":\"lakehouse-worker2\",\"age_minutes\":33245.3,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":12.1}},{\"name\":\"lakehouse-dual-role-1\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":9,\"node\":\"lakehouse-worker3\",\"age_minutes\":8619.3,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":12.1}},{\"name\":\"lakehouse-dual-role-2\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":27,\"node\":\"lakehouse-worker\",\"age_minutes\":36319.9,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":12.1}}],\"metrics\":{\"brokers_scraped_up\":{\"lakehouse-dual-role-0\":true,\"lakehouse-dual-role-1\":true,\"lakehouse-dual-role-2\":false},\"under_replicated_partitions\":60.0,\"under_min_isr_partitions\":0.0,\"offline_partitions\":0.0,\"active_controllers\":1.0},\"consumer_lag\":{\"flink-events-to-iceberg\":800.0}}",
+   "replay_miss": false
+  },
+  {
+   "seq": 2,
+   "tool": "get_nodes",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"nodes\":[{\"name\":\"lakehouse-control-plane\",\"ready\":true,\"zone\":null,\"problems\":[],\"unschedulable\":false,\"taints\":[\"node-role.kubernetes.io/control-plane:NoSchedule\"]},{\"name\":\"lakehouse-worker\",\"ready\":true,\"zone\":\"zone-a\",\"problems\":[],\"unschedulable\":false,\"taints\":[]},{\"name\":\"lakehouse-worker2\",\"ready\":true,\"zone\":\"zone-b\",\"problems\":[],\"unschedulable\":false,\"taints\":[]},{\"name\":\"lakehouse-worker3\",\"ready\":true,\"zone\":\"zone-c\",\"problems\":[],\"unschedulable\":false,\"taints\":[]}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 3,
+   "tool": "search_runbooks",
+   "arguments": {
+    "query": "KafkaBrokerDown"
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"results\":[{\"runbook\":\"docs/runbooks/kafka.md#kafkabrokerdown\",\"title\":\"Runbook: Kafka\",\"heading\":\"KafkaBrokerDown\",\"text\":\"**Meaning:** fewer than 3 brokers are reachable for 2 minutes.\\n**Impact:** none yet for clients (RF=3, min ISR 2), but there is no margin left: one more loss stops writes.\\n**Diagnose:** `kc -n kafka get pods -o wide` (which broker, which node); `kc -n kafka describe pod <broker>`; broker logs in Loki: `{namespace=\\\"kafka\\\", pod=\\\"<broker>\\\"}`. On a node failure, the pod cannot move to another zone (its volume is zonal); on EKS the per-zone node group replaces the node. A broker that is Running and Ready but still not reachable (its metrics endpoint not scraped, its replicas out of the ISR, the other brokers logging connection timeouts to it) is cut off from the network, not crashed: check NetworkPolicies, the node's network and recent changes (including chaos experiments).\\n**Fix:** Strimzi restarts a crashed broker. If the pod is Pending, check the node and its volume. Do not delete the PVC: the broker would rejoin empty and have to re-replicate everything. Do not restart a broker that is cut off from the network: the restart does not reach the network fault, and it removes the evidence (its connection errors and ISR history). Escalate to whoever owns the network; Kafka keeps serving with two brokers.\"}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 4,
+   "tool": "get_pod_logs",
+   "arguments": {
+    "namespace": "kafka",
+    "pod": "lakehouse-dual-role-2",
+    "tail": 80
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"pod\":\"lakehouse-dual-role-2\",\"previous\":false,\"line_count\":80,\"lines\":[\"\\tat kafka.server.AbstractFetcherThread.$anonfun$maybeFetch$3(AbstractFetcherThread.scala:133)\",\"\\tat java.base/java.util.Optional.ifPresent(Optional.java:178)\",\"\\tat kafka.server.AbstractFetcherThread.maybeFetch(AbstractFetcherThread.scala:132)\",\"\\tat kafka.server.AbstractFetcherThread.doWork(AbstractFetcherThread.scala:113)\",\"\\tat kafka.server.ReplicaFetcherThread.doWork(ReplicaFetcherThread.scala:107)\",\"\\tat org.apache.kafka.server.util.ShutdownableThread.run(ShutdownableThread.java:136)\",\"2026-11-25 07:10:43 INFO  [broker-2-to-controller-heartbeat-channel-manager] BrokerLifecycleManager:602 - [BrokerLifecycleManager id=2] Unable to send a heartbeat because the RPC got timed out before it could be sent.\",\"2026-11-25 07:10:44 INFO  [group-coordinator-event-processor-3] CoordinatorTimerImpl:122 - [GroupCoordinator id=2 topic=__consumer_offsets partition=2] The write event Timeout(key=expire-group-metadata) for the timer expire-group-metadata failed due to CoordinatorWriteEvent(name=Timeout(key=expire-group-metadata)) timed out after 5000ms. Rescheduling it. \",\"2026-11-25 07:10:44 INFO  [kafka-2-raft-io-thread] KafkaRaftClient:3264 - [RaftManager id=2] Election timed out before receiving sufficient vote responses to become candidate. Current epoch election state: EpochElection[voterStates={0=VoterState(replicaKey=ReplicaKey(id=0, directoryId=<undefined>), state=UNRECORDED), 1=VoterState(replicaKey=ReplicaKey(id=1, directoryId=<undefined>), state=UNRECORDED), 2=VoterState(replicaKey=ReplicaKey(id=2, directoryId=<undefined>), state=GRANTED)}]\",\"2026-11-25 07:10:44 INFO  [kafka-2-raft-io-thread] QuorumState:730 - [RaftManager id=2] Attempting durable transition to UnattachedState(epoch=1963, leaderId=OptionalInt.empty, votedKey=Optional.empty, voters=[0, 1, 2], electionTimeoutMs=0, highWatermark=Optional.empty) from ProspectiveState(epoch=1963, leaderId=OptionalInt.empty, votedKey=Optional.empty, epochElection=EpochElection[voterStates={0=VoterState(replicaKey=ReplicaKey(id=0, directoryId=<undefined>), state=UNRECORDED), 1=VoterState(re... [209 chars cut]\",\"2026-11-25 07:10:44 INFO  [kafka-2-raft-io-thread] QuorumState:742 - [RaftManager id=2] Completed transition to UnattachedState(epoch=1963, leaderId=OptionalInt.empty, votedKey=Optional.empty, voters=[0, 1, 2], electionTimeoutMs=0, highWatermark=Optional.empty) from ProspectiveState(epoch=1963, leaderId=OptionalInt.empty, votedKey=Optional.empty, epochElection=EpochElection[voterStates={0=VoterState(replicaKey=ReplicaKey(id=0, directoryId=<undefined>), state=UNRECORDED), 1=VoterState(replicaKey=... [200 chars cut]\",\"2026-11-25 07:10:44 INFO  [kafka-2-raft-io-thread] QuorumState:742 - [RaftManager id=2] Completed transition to ProspectiveState(epoch=1963, leaderId=OptionalInt.empty, votedKey=Optional.empty, epochElection=EpochElection[voterStates={0=VoterState(replicaKey=ReplicaKey(id=0, directoryId=<undefined>), state=UNRECORDED), 1=VoterState(replicaKey=ReplicaKey(id=1, directoryId=<undefined>), state=UNRECORDED), 2=VoterState(replicaKey=ReplicaKey(id=2, directoryId=<undefined>), state=GRANTED)}], election... [200 chars cut]\",\"2026-11-25 07:10:45 WARN  [kafka-2-raft-outbound-request-thread] NetworkClient:1147 - [RaftManager id=2] Error connecting to node lakehouse-dual-role-0.lakehouse-kafka-brokers.kafka.svc:9090 (id: 0 rack: null isFenced: false)\",\"java.net.UnknownHostException: lakehouse-dual-role-0.lakehouse-kafka-brokers.kafka.svc\",\"\\tat java.base/java.net.InetAddress$CachedLookup.get(InetAddress.java:988)\",\"\\tat java.base/java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:1191)\",\"\\tat java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)\",\"\\tat java.base/java.net.InetAddress.getAllByName(InetAddress.java:1688)\",\"\\tat org.apache.kafka.clients.DefaultHostResolver.resolve(DefaultHostResolver.java:27)\",\"\\tat org.apache.kafka.clients.ClientUtils.resolve(ClientUtils.java:125)\",\"\\tat org.apache.kafka.clients.ClusterConnectionStates$NodeConnectionState.resolveAddresses(ClusterConnectionStates.java:536)\",\"\\tat org.apache.kafka.clients.ClusterConnectionStates$NodeConnectionState.currentAddress(ClusterConnectionStates.java:511)\",\"\\tat org.apache.kafka.clients.ClusterConnectionStates.currentAddress(ClusterConnectionStates.java:173)\",\"\\tat org.apache.kafka.clients.NetworkClient.initiateConnect(NetworkClient.java:1140)\",\"\\tat org.apache.kafka.clients.NetworkClient.ready(NetworkClient.java:368)\",\"\\tat org.apache.kafka.server.util.InterBrokerSendThread.sendRequests(InterBrokerSendThread.java:146)\",\"\\tat org.apache.kafka.server.util.InterBrokerSendThread.pollOnce(InterBrokerSendThread.java:109)\",\"\\tat org.apache.kafka.server.util.InterBrokerSendThread.doWork(InterBrokerSendThread.java:137)\",\"\\tat org.apache.kafka.server.util.ShutdownableThread.run(ShutdownableThread.java:136)\",\"2026-11-25 07:10:45 WARN  [ReplicaFetcherThread-0-0] NetworkClient:1147 - [ReplicaFetcher replicaId=2, leaderId=0, fetcherId=0] Error connecting to node lakehouse-dual-role-0.lakehouse-kafka-brokers.kafka.svc:9091 (id: 0 rack: null isFenced: false)\",\"java.net.UnknownHostException: lakehouse-dual-role-0.lakehouse-kafka-brokers.kafka.svc: Name or service not known\",\"\\tat java.base/java.net.Inet6AddressImpl.lookupAllHostAddr(Native Method)\",\"\\tat java.base/java.net.Inet6AddressImpl.lookupAllHostAddr(Inet6AddressImpl.java:52)\",\"\\tat java.base/java.net.InetAddress$PlatformResolver.lookupByName(InetAddress.java:1211)\",\"\\tat java.base/java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1828)\",\"\\tat java.base/java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:1139)\",\"\\tat java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)\",\"\\tat java.base/java.net.InetAddress.getAllByName(InetAddress.java:1688)\",\"\\tat org.apache.kafka.clients.DefaultHostResolver.resolve(DefaultHostResolver.java:27)\",\"\\tat org.apache.kafka.clients.ClientUtils.resolve(ClientUtils.java:125)\",\"\\tat org.apache.kafka.clients.ClusterConnectionStates$NodeConnectionState.resolveAddresses(ClusterConnectionStates.java:536)\",\"\\tat org.apache.kafka.clients.ClusterConnectionStates$NodeConnectionState.currentAddress(ClusterConnectionStates.java:511)\",\"\\tat org.apache.kafka.clients.ClusterConnectionStates.currentAddress(ClusterConnectionStates.java:173)\",\"\\tat org.apache.kafka.clients.NetworkClient.initiateConnect(NetworkClient.java:1140)\",\"\\tat org.apache.kafka.clients.NetworkClient.ready(NetworkClient.java:368)\",\"\\tat org.apache.kafka.clients.NetworkClientUtils.awaitReady(NetworkClientUtils.java:65)\",\"\\tat kafka.server.BrokerBlockingSender.sendRequest(BrokerBlockingSender.scala:107)\",\"\\tat kafka.server.RemoteLeaderEndPoint.fetch(RemoteLeaderEndPoint.scala:77)\",\"\\tat kafka.server.AbstractFetcherThread.processFetchRequest(AbstractFetcherThread.scala:325)\",\"\\tat kafka.server.AbstractFetcherThread.$anonfun$maybeFetch$3(AbstractFetcherThread.scala:133)\",\"\\tat java.base/java.util.Optional.ifPresent(Optional.java:178)\",\"\\tat kafka.server.AbstractFetcherThread.maybeFetch(AbstractFetcherThread.scala:132)\",\"\\tat kafka.server.AbstractFetcherThread.doWork(AbstractFetcherThread.scala:113)\",\"\\tat kafka.server.ReplicaFetcherThread.doWork(ReplicaFetcherThread.scala:107)\",\"\\tat org.apache.kafka.server.util.ShutdownableThread.run(ShutdownableThread.java:136)\",\"2026-11-25 07:10:45 INFO  [ReplicaFetcherThread-0-0] NetworkClient:446 - [ReplicaFetcher replicaId=2, leaderId=0, fetcherId=0] Client requested connection close from node 0\",\"2026-11-25 07:10:45 INFO  [ReplicaFetcherThread-0-0] FetchSessionHandler:618 - [ReplicaFetcher replicaId=2, leaderId=0, fetcherId=0] Error sending fetch request (sessionId=192068633, epoch=INITIAL) to node 0:\",\"java.io.IOException: Connection to lakehouse-dual-role-0.lakehouse-kafka-brokers.kafka.svc:9091 (id: 0 rack: null isFenced: false) failed.\",\"\\tat org.apache.kafka.clients.NetworkClientUtils.awaitReady(NetworkClientUtils.java:71)\",\"\\tat kafka.server.BrokerBlockingSender.sendRequest(BrokerBlockingSender.scala:107)\",\"\\tat kafka.server.RemoteLeaderEndPoint.fetch(RemoteLeaderEndPoint.scala:77)\",\"\\tat kafka.server.AbstractFetcherThread.processFetchRequest(AbstractFetcherThread.scala:325)\",\"\\tat kafka.server.AbstractFetcherThread.$anonfun$maybeFetch$3(AbstractFetcherThread.scala:133)\",\"\\tat java.base/java.util.Optional.ifPresent(Optional.java:178)\",\"\\tat kafka.server.AbstractFetcherThread.maybeFetch(AbstractFetcherThread.scala:132)\",\"\\tat kafka.server.AbstractFetcherThread.doWork(AbstractFetcherThread.scala:113)\",\"\\tat kafka.server.ReplicaFetcherThread.doWork(ReplicaFetcherThread.scala:107)\",\"\\tat org.apache.kafka.server.util.ShutdownableThread.run(ShutdownableThread.java:136)\",\"2026-11-25 07:10:45 WARN  [ReplicaFetcherThread-0-0] ReplicaFetcherThread:76 - [ReplicaFetcher replicaId=2, leaderId=0, fetcherId=0] Error in response for fetch request (type=FetchRequest, replicaId=2, maxWait=500, minBytes=1, maxBytes=10485760, fetchData={__consumer_offsets-15=PartitionData(topicId=y2y008yZQtyV0c2YBnf3IA, fetchOffset=0, logStartOffset=0, maxBytes=1048576, currentLeaderEpoch=Optional[112], lastFetchedEpoch=Optional[111]), __consumer_offsets-47=PartitionData(topicId=y2y008yZQtyV0... [3556 chars cut]\",\"java.io.IOException: Connection to lakehouse-dual-role-0.lakehouse-kafka-brokers.kafka.svc:9091 (id: 0 rack: null isFenced: false) failed.\",\"\\tat org.apache.kafka.clients.NetworkClientUtils.awaitReady(NetworkClientUtils.java:71)\",\"\\tat kafka.server.BrokerBlockingSender.sendRequest(BrokerBlockingSender.scala:107)\",\"\\tat kafka.server.RemoteLeaderEndPoint.fetch(RemoteLeaderEndPoint.scala:77)\",\"\\tat kafka.server.AbstractFetcherThread.processFetchRequest(AbstractFetcherThread.scala:325)\",\"\\tat kafka.server.AbstractFetcherThread.$anonfun$maybeFetch$3(AbstractFetcherThread.scala:133)\",\"\\tat java.base/java.util.Optional.ifPresent(Optional.java:178)\",\"\\tat kafka.server.AbstractFetcherThread.maybeFetch(AbstractFetcherThread.scala:132)\",\"\\tat kafka.server.AbstractFetcherThread.doWork(AbstractFetcherThread.scala:113)\",\"\\tat kafka.server.ReplicaFetcherThread.doWork(ReplicaFetcherThread.scala:107)\",\"\\tat org.apache.kafka.server.util.ShutdownableThread.run(ShutdownableThread.java:136)\"]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 5,
+   "tool": "get_events",
+   "arguments": {
+    "namespace": "kafka",
+    "minutes": 30
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"namespace\":\"kafka\",\"event_count\":20,\"events\":[{\"minutes_ago\":10.3,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-dual-role-0\",\"count\":2,\"message\":\"Readiness probe failed:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\\n                                 Dload  Upload   Total   Spent    Left  Speed\\n\\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\\r  0    34    0     0    0     0      0... [90 chars cut]\"},{\"minutes_ago\":10.3,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-kafka-exporter-58c78bc654-8nxqd\",\"count\":3,\"message\":\"Liveness probe failed: Get \\\"http://10.244.3.11:9404/healthz\\\": dial tcp 10.244.3.11:9404: connect: connection refused\"},{\"minutes_ago\":10.3,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-kafka-exporter-58c78bc654-8nxqd\",\"count\":5,\"message\":\"Readiness probe failed: Get \\\"http://10.244.3.11:9404/healthz\\\": dial tcp 10.244.3.11:9404: connect: connection refused\"},{\"minutes_ago\":10.4,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-entity-operator-6458c99b6-4q7rg\",\"count\":5,\"message\":\"Liveness probe failed: HTTP probe failed with statuscode: 500\"},{\"minutes_ago\":10.4,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-entity-operator-6458c99b6-4q7rg\",\"count\":9,\"message\":\"Readiness probe failed: HTTP probe failed with statuscode: 500\"},{\"minutes_ago\":10.5,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-dual-role-0\",\"count\":1,\"message\":\"Readiness probe failed:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\\n                                 Dload  Upload   Total   Spent    Left  Speed\\n\\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\\r  0     0    0     0    0     0      0... [169 chars cut]\"},{\"minutes_ago\":10.5,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-dual-role-1\",\"count\":3,\"message\":\"Readiness probe failed:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\\n                                 Dload  Upload   Total   Spent    Left  Speed\\n\\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\\r  0    34    0     0    0     0      0... [90 chars cut]\"},{\"minutes_ago\":10.6,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-dual-role-2\",\"count\":1,\"message\":\"Readiness probe failed:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\\n                                 Dload  Upload   Total   Spent    Left  Speed\\n\\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\\r  0    34    0     0    0     0      0... [90 chars cut]\"},{\"minutes_ago\":10.6,\"type\":\"Warning\",\"reason\":\"BackOff\",\"object\":\"Pod/lakehouse-entity-operator-6458c99b6-4q7rg\",\"count\":3,\"message\":\"Back-off restarting failed container topic-operator in pod lakehouse-entity-operator-6458c99b6-4q7rg_kafka(aa6edf35-19f8-437e-bf83-9bc1a661e1b5)\"},{\"minutes_ago\":10.7,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-dual-role-0\",\"count\":3,\"message\":\"Readiness probe failed:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\\n                                 Dload  Upload   Total   Spent    Left  Speed\\n\\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\\r  0     0    0     0    0     0      0... [112 chars cut]\"},{\"minutes_ago\":10.8,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-dual-role-2\",\"count\":1,\"message\":\"Readiness probe failed:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\\n                                 Dload  Upload   Total   Spent    Left  Speed\\n\\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\\r  0     0    0     0    0     0      0... [169 chars cut]\"},{\"minutes_ago\":10.8,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-entity-operator-6458c99b6-4q7rg\",\"count\":5,\"message\":\"Startup probe failed: Get \\\"http://10.244.1.11:8080/healthy\\\": dial tcp 10.244.1.11:8080: connect: connection refused\"},{\"minutes_ago\":10.9,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-dual-role-2\",\"count\":2,\"message\":\"Readiness probe failed:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\\n                                 Dload  Upload   Total   Spent    Left  Speed\\n\\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\\r  0     0    0     0    0     0      0... [112 chars cut]\"},{\"minutes_ago\":10.9,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-entity-operator-6458c99b6-4q7rg\",\"count\":2,\"message\":\"Readiness probe failed: Get \\\"http://10.244.1.11:8081/ready\\\": dial tcp 10.244.1.11:8081: connect: connection refused\"},{\"minutes_ago\":10.9,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/strimzi-cluster-operator-5b9c9c57fd-zvfkg\",\"count\":1,\"message\":\"Readiness probe failed: Get \\\"http://10.244.3.8:8080/ready\\\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)\"},{\"minutes_ago\":11.1,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-dual-role-1\",\"count\":2,\"message\":\"Readiness probe failed:   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\\n                                 Dload  Upload   Total   Spent    Left  Speed\\n\\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\\r  0     0    0     0    0     0      0... [112 chars cut]\"},{\"minutes_ago\":11.3,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/strimzi-cluster-operator-5b9c9c57fd-zvfkg\",\"count\":1,\"message\":\"Liveness probe failed: Get \\\"http://10.244.3.8:8080/healthy\\\": dial tcp 10.244.3.8:8080: connect: connection refused\"},{\"minutes_ago\":11.4,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/strimzi-cluster-operator-5b9c9c57fd-zvfkg\",\"count\":2,\"message\":\"Readiness probe failed: Get \\\"http://10.244.3.8:8080/ready\\\": dial tcp 10.244.3.8:8080: connect: connection refused\"},{\"minutes_ago\":11.5,\"type\":\"Warning\",\"reason\":\"Unhealthy\",\"object\":\"Pod/lakehouse-entity-operator-6458c99b6-4q7rg\",\"count\":1,\"message\":\"Liveness probe failed: Get \\\"http://10.244.1.11:8081/healthy\\\": dial tcp 10.244.1.11:8081: connect: connection refused\"},{\"minutes_ago\":11.9,\"type\":\"Warning\",\"reason\":\"FailedMount\",\"object\":\"Pod/lakehouse-dual-role-1\",\"count\":1,\"message\":\"MountVolume.SetUp failed for volume \\\"kafka-metrics-and-logging\\\" : failed to sync configmap cache: timed out waiting for the condition\"}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 6,
+   "tool": "get_flink_job_status",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"operator\":{\"job_state\":\"RUNNING\",\"desired_state\":\"running\",\"lifecycle_state\":\"STABLE\",\"job_manager_status\":\"READY\",\"error\":null,\"job_started_minutes_ago\":10.4},\"pods\":[{\"name\":\"events-to-iceberg-d89f74dc6-2drm8\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":7,\"node\":\"lakehouse-worker2\",\"age_minutes\":7561.9,\"last_termination\":{\"container\":\"flink-main-container\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":12.1},\"component\":\"jobmanager\"},{\"name\":\"events-to-iceberg-d89f74dc6-86hlg\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":7,\"node\":\"lakehouse-worker3\",\"age_minutes\":7561.9,\"last_termination\":{\"container\":\"flink-main-container\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":12.1},\"component\":\"jobmanager\"},{\"name\":\"events-to-iceberg-taskmanager-15-1\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":0,\"node\":\"lakehouse-worker3\",\"age_minutes\":10.2,\"component\":\"taskmanager\"},{\"name\":\"events-to-iceberg-taskmanager-15-2\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":0,\"node\":\"lakehouse-worker\",\"age_minutes\":9.9,\"component\":\"taskmanager\"}],\"metrics\":{\"uptime_seconds\":590,\"restarts_last_15m\":0.0,\"completed_checkpoints_last_5m\":29.386,\"failed_checkpoints_last_10m\":3.02,\"last_checkpoint_duration_ms\":259.0,\"backpressured_fraction_10m\":0.0,\"consumer_lag\":800.0}}",
+   "replay_miss": false
+  },
+  {
+   "seq": 7,
+   "tool": "get_recent_changes",
+   "arguments": {
+    "hours": 1
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"hours\":24,\"changes\":[{\"application\":\"platform-local\",\"revision\":\"7d448a789610\",\"deployed_minutes_ago\":69.5},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,7d448a789610\",\"deployed_minutes_ago\":70.4},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,e13724de1508\",\"deployed_minutes_ago\":163.3},{\"application\":\"platform-local\",\"revision\":\"e13724de1508\",\"deployed_minutes_ago\":164.0}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 8,
+   "tool": "query_prometheus",
+   "arguments": {
+    "query": "kafka_server_replicamanager_underreplicatedpartitions",
+    "range_minutes": 20,
+    "step_seconds": 60
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"series_count\":3,\"series\":[{\"labels\":{\"__name__\":\"kafka_server_replicamanager_underreplicatedpartitions\",\"container\":\"kafka\",\"endpoint\":\"tcp-prometheus\",\"instance\":\"10.244.1.7:9404\",\"job\":\"monitoring/kafka-brokers\",\"kubernetes_pod_name\":\"lakehouse-dual-role-2\",\"namespace\":\"kafka\",\"pod\":\"lakehouse-dual-role-2\"},\"points\":[[-600,0.0],[-540,0.0],[-480,0.0],[-420,0.0],[-360,0.0],[-300,0.0],[-240,0.0]]},{\"labels\":{\"__name__\":\"kafka_server_replicamanager_underreplicatedpartitions\",\"container\":\"kafka\",\"endpoint\":\"tcp-prometheus\",\"instance\":\"10.244.2.5:9404\",\"job\":\"monitoring/kafka-brokers\",\"kubernetes_pod_name\":\"lakehouse-dual-role-1\",\"namespace\":\"kafka\",\"pod\":\"lakehouse-dual-role-1\"},\"points\":[[-600,0.0],[-540,0.0],[-480,0.0],[-420,0.0],[-360,0.0],[-300,0.0],[-240,0.0],[-180,28.0],[-120,28.0],[-60,28.0],[0,28.0]]},{\"labels\":{\"__name__\":\"kafka_server_replicamanager_underreplicatedpartitions\",\"container\":\"kafka\",\"endpoint\":\"tcp-prometheus\",\"instance\":\"10.244.3.17:9404\",\"job\":\"monitoring/kafka-brokers\",\"kubernetes_pod_name\":\"lakehouse-dual-role-0\",\"namespace\":\"kafka\",\"pod\":\"lakehouse-dual-role-0\"},\"points\":[[-600,0.0],[-540,0.0],[-480,0.0],[-420,0.0],[-360,0.0],[-300,0.0],[-240,0.0],[-180,32.0],[-120,32.0],[-60,32.0],[0,32.0]]}],\"points_are\":\"[seconds relative to now, value]\"}",
+   "replay_miss": false
+  }
+ ],
+ "turns": 4,
+ "usage": {
+  "input": 36012,
+  "output": 5187,
+  "cache_read": 13904,
+  "cache_write": 0
+ },
+ "models_used": [
+  "claude-sonnet-4-6"
+ ],
+ "unsupported_evidence": [],
+ "reasoning_summaries": [
+  "Let me investigate the KafkaBrokerDown alert. I'll start by checking the Kafka status, nodes, and the runbook simultaneously.",
+  "Interesting. All 3 broker pods are Running and Ready (1/1). But broker-2 (lakehouse-dual-role-2) is not being scraped by Prometheus (`brokers_scraped_up` shows false for it). There are 60 under-replicated partitions but 0 under-min-ISR and 0 offline partitions. All nodes are Ready.\n\nAll three brokers terminated ~12 minutes ago with reason \"Unknown\" and exit code 255. This is suspicious - maybe there was a node or network event 12 minutes ago that caused all brokers to restart.\n\nThe alert started at 07:09:48 UTC. The brokers last terminated ~12 minutes ago from now.\nThe real trigger seems to be that broker-2 isn't reachable from Prometheus even though Kubernetes sees it as running fine, and the 60 under-replicated partitions likely reflect it still catching up. There's also consumer lag of 800 on flink-events-to-iceberg. I want to check broker-2's logs, recent events in the kafka namespace, and the Flink job status next.\n\n",
+  "Now I have a clearer picture:\n\n1. **What happened ~11-12 minutes ago**: There was a broad, cluster-wide disruption. ALL Kafka brokers, Flink pods, Strimzi operator, entity operator, kafka exporter - all terminated at roughly the same time (12.1 minutes ago with reason \"Unknown\" exit code 255). This strongly suggests a network or infrastructure disruption (possibly a node network blip or DNS issue) that affected all pods broadly.\n\n2. **Current state**: All 3 brokers are Running/Ready 1/1. However:\n   - Broker-2 (lakehouse-dual-role-2) is NOT being scraped by the metrics endpoint (`brokers_scraped_up: false`)\n   - There are 60 under-replicated partitions, though none are under-min-ISR or offline\n   - The alert about only 2 of 3 brokers being reachable traces back to broker-2's metrics not being scraped\n\n3. Checking broker-2's logs, I see it's hitting DNS resolution failures when trying to reach broker-0, throwing UnknownHostException for the broker service address, along with KRaft election timeouts since it can't connect to broker-0 for replication.\n\n4. Broker-0 and broker-1 look healthy (scraped=true), so this seems isolated to broker-2 - possibly a DNS issue or a problem with the headless service resolving properly just for that pod.\n\n5. The Flink job is RUNNING and STABLE, restarted about 10.4 minutes ago after the disruption. There are some failed checkpoints but also completed ones happening regularly, and consumer lag sits around 800 - elevated but not alarming.\n\nThe real question is whether this is a genuine DNS/network problem for broker-2 or just the exporter being slow to reconnect. Looking at the events, all broker readiness probes failed around 10.5-11 minutes ago and all pods restarted roughly 12 minutes ago - so recovery mostly happened, but broker-2 is still struggling to catch up.\n\nI'm seeing DNS resolution failures pointing to an UnknownHostException for the broker-0 headless service address, plus signs broker-2 isn't being scraped and some KRaft ele",
+  "Now I have a very clear picture:\n\n1. **Chaos Mesh was deployed ~70 minutes ago** (revision `7d448a789610`) along with `platform-local`. This is almost certainly the trigger.\n\n2. **Under-replicated partitions**: Started appearing ~3-4 minutes ago (at -180s, 28+32=60 total). Broker-2 itself reports 0 under-replicated (because Prometheus can't scrape broker-2 since ~12 minutes ago), but brokers 0 and 1 each report ~28-32 under-replicated partitions.\nBroker-2 also can't resolve its own DNS hostname, which points to a Chaos Mesh network fault like a DNS disruption or partition. All pods were terminated about 12.1 minutes ago with exit code 255, consistent with a chaos experiment pod-kill or network chaos firing right around when the alert went off.\n\nPutting it together: the cluster is still safe since there are 0 offline partitions and 0 under-min-ISR, but broker-2's ongoing DNS/network trouble is causing 60 under-replicated partitions and Prometheus can't scrape it, triggering the KafkaBrokerDown alert, while Flink stays RUNNING but shows 800 consumer lag.\n\nI'm leaning toward escalating this since it looks like an active Chaos Mesh network experiment \u2014 the runbook explicitly warns against restarting a broker that's cut off from the network, so I need to figure out whether the chaos experiment is still running before taking any action, since restarting the pod won't fix an active network fault.\n\nI won't overanalyze the exact timing mismatch. The key findings: Chaos Mesh was recently deployed and likely killed all pods simultaneously, broker-2 has DNS resolution issues for inter-broker communication, the alert concerns broker-2's scrape-reachability, and the cluster remains healthy with no offline or under-min-ISR partitions\u2014so escalation makes sense to verify the Chaos Mesh experiment status.\n\nScrape failures plus DNS resolution failures for broker-2 point to network isolation, likely from an active or residual Chaos Mesh network partition experiment. The recommendation "
+ ],
+ "trace_id": "",
+ "error": ""
+}

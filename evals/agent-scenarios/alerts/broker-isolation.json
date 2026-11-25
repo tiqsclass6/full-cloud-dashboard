@@ -19,7 +19,7 @@
         "runbook_url": "docs/runbooks/kafka.md#kafkabrokerdown",
         "summary": "A Kafka broker is down"
       },
-      "startsAt": "2026-11-01T07:54:48.794Z",
+      "startsAt": "2026-11-25T07:09:48.794Z",
       "fingerprint": "056e94b12bd66d47"
     }
   ]

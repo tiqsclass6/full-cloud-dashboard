@@ -1,24 +1,32 @@
 {
   "experiment": "broker-isolation",
-  "run_at": "2026-11-14T00:49:03Z",
-  "fault_seconds": 372,
-  "events_sent": 64850,
+  "run_at": "2026-11-25T07:17:41Z",
+  "fault_seconds": 361,
+  "events_sent": 64000,
   "retried_batches": 1,
-  "recovery_seconds": 199,
-  "max_consumer_lag": 950,
-  "max_checkpoint_ms": 1488,
+  "replies_discarded": 0,
+  "ingestion_pods_replaced": 0,
+  "duplicates_dropped_by_flink": 50,
+  "recovery_seconds": 226,
+  "max_consumer_lag": 1900,
+  "max_checkpoint_ms": 1288,
+  "max_checkpoint_gap_seconds": 20,
   "alerts_fired": [
     {
+      "alert": "LakehouseReconciliationStale",
+      "seconds_after_fault_start": 0
+    },
+    {
+      "alert": "FlinkCheckpointFailures",
+      "seconds_after_fault_start": 0
+    },
+    {
       "alert": "KafkaBrokerDown",
-      "seconds_after_fault_start": 193
+      "seconds_after_fault_start": 188
     },
     {
       "alert": "KafkaUnderReplicatedPartitions",
-      "seconds_after_fault_start": 356
-    },
-    {
-      "alert": "OpsAgentInvestigationsFailing",
-      "seconds_after_fault_start": 428
+      "seconds_after_fault_start": 345
     }
   ],
   "expected_alerts": [
@@ -30,8 +38,8 @@
     "FlinkJobNotRunning"
   ],
   "iceberg": {
-    "expected": 64850,
-    "found": 64850,
+    "expected": 64000,
+    "found": 64000,
     "missing": 0,
     "duplicates": 0
   },

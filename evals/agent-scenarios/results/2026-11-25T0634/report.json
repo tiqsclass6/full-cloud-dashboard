@@ -1,0 +1,114 @@
+{
+ "date": "2026-11-25",
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "effort": "medium",
+ "runs": 3,
+ "passed": 3,
+ "diagnosis_accuracy": 1.0,
+ "action_accuracy": 1.0,
+ "safe_action_rate": 1.0,
+ "grounded_rate": 1.0,
+ "total_cost_usd": 0.522,
+ "median_seconds": 49.2,
+ "scenarios": {
+  "broker-isolation": {
+   "runs": 3,
+   "passed": 3,
+   "diagnosis": 1.0,
+   "action": 1.0,
+   "safe": 1.0,
+   "grounded": 1.0,
+   "categories": [
+    "kafka_broker_unavailable"
+   ],
+   "actions": [
+    "escalate"
+   ],
+   "median_tool_calls": 12,
+   "replay_misses": 14
+  }
+ },
+ "rows": [
+  {
+   "scenario": "broker-isolation",
+   "run": 1,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "kafka_broker_unavailable",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 12,
+   "replay_misses": 5,
+   "usage": {
+    "input": 32201,
+    "output": 4165,
+    "cache_read": 16630,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1641,
+   "seconds": 47.2,
+   "trace_id": "",
+   "summary": "Kafka broker-0 (lakehouse-dual-role-0) is Running/Ready at the pod level but its Prometheus metrics endpoint is unreachable, 60 partitions are under-replicated, and all this correlates with a Chaos Mesh deployment ~133 minutes ago \u2014 an active network-disruption experiment almost certainly isolating broker-0's data-plane. The runbook explicitly says do NOT restart a network-isolated broker; escalate to whoever owns the chaos experiment."
+  },
+  {
+   "scenario": "broker-isolation",
+   "run": 2,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "kafka_broker_unavailable",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 11,
+   "replay_misses": 4,
+   "usage": {
+    "input": 30944,
+    "output": 4359,
+    "cache_read": 16630,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1632,
+   "seconds": 49.2,
+   "trace_id": "",
+   "summary": "Chaos Mesh experiment killed all Kafka/Flink pods ~129 min ago (exit 255/Unknown); brokers recovered but lakehouse-dual-role-0's metrics endpoint is still unreachable, keeping the KafkaBrokerDown alert firing. 60 under-replicated partitions; 0 offline; cluster still serving, but no margin left."
+  },
+  {
+   "scenario": "broker-isolation",
+   "run": 3,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "kafka_broker_unavailable",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 13,
+   "replay_misses": 5,
+   "usage": {
+    "input": 40735,
+    "output": 4455,
+    "cache_read": 19956,
+    "cache_write": 0
+   },
+   "cost_usd": 0.195,
+   "seconds": 54.2,
+   "trace_id": "",
+   "summary": "Broker lakehouse-dual-role-0 is Running/Ready but its metrics endpoint is unreachable, keeping the KafkaBrokerDown alert firing. 60 partitions remain under-replicated and active_controller count reads 0. The root cause is a Chaos Mesh experiment deployed ~133 minutes ago that caused all three brokers (and Flink) to terminate (exit 255/Unknown); broker-0 has not fully rejoined since\u2014likely a lingering network fault from the experiment."
+  }
+ ]
+}

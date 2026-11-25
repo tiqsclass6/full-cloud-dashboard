@@ -1,0 +1,227 @@
+{
+ "id": "d6480f07-1bbf-4f5c-a5d5-dbd2d19f05c6",
+ "trigger": {
+  "status": "firing",
+  "commonLabels": {
+   "alertname": "KafkaBrokerDown",
+   "severity": "critical"
+  },
+  "alerts": [
+   {
+    "status": "firing",
+    "labels": {
+     "alertname": "KafkaBrokerDown",
+     "prometheus": "monitoring/kps-prometheus",
+     "severity": "critical"
+    },
+    "annotations": {
+     "description": "Only 2 of 3 brokers are reachable; the cluster tolerates one loss.",
+     "runbook_url": "docs/runbooks/kafka.md#kafkabrokerdown",
+     "summary": "A Kafka broker is down"
+    },
+    "startsAt": "2026-11-01T07:54:48.794Z"
+   }
+  ]
+ },
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "started_at": 1795588523.6698093,
+ "finished_at": 1795588572.9068375,
+ "outcome": "diagnosed",
+ "diagnosis": {
+  "summary": "Chaos Mesh experiment killed all Kafka/Flink pods ~129 min ago (exit 255/Unknown); brokers recovered but lakehouse-dual-role-0's metrics endpoint is still unreachable, keeping the KafkaBrokerDown alert firing. 60 under-replicated partitions; 0 offline; cluster still serving, but no margin left.",
+  "root_cause_category": "kafka_broker_unavailable",
+  "root_cause": "A Chaos Mesh PodChaos experiment deployed ~133 minutes ago (revision 9187ff9e9e6f) killed every pod in the kafka and apps namespaces simultaneously (exit code 255, reason Unknown). All brokers restarted and are Running/Ready, but broker lakehouse-dual-role-0 on lakehouse-worker2 (zone-b) is network-partitioned: Prometheus cannot scrape its metrics endpoint (brokers_scraped_up=false), it holds 60 under-replicated partitions, and the active_controllers metric reads 0 (consistent with broker-0 being the KRaft active controller whose scrape is blocked). A further chaos-mesh-local deployment occurred only 15 minutes ago, suggesting a new or updated chaos experiment may still be active against broker 0. The runbook explicitly warns against restarting a network-partitioned broker\u2014the fault lives in the network layer, not the broker process.",
+  "confidence": "high",
+  "impact": "Kafka cluster is writing and replicating with 2 of 3 brokers accessible (RF=3, min.ISR=2 met, 0 offline partitions). No data loss yet, but there is zero fault-margin: one more broker loss would halt all writes. 60 partitions are under-replicated. Flink job restarted 128 min ago and is RUNNING with lag of 200 messages\u2014acceptable and likely draining. End-users are not yet impacted but the system is fragile.",
+  "evidence": [
+   {
+    "tool": "get_kafka_status",
+    "finding": "All 3 broker pods Running 1/1; brokers_scraped_up shows lakehouse-dual-role-0=false, brokers 1 and 2=true; under_replicated_partitions=60; under_min_isr_partitions=0; offline_partitions=0; active_controllers=0 (scrape artifact\u2014broker-0 is likely the controller and unreachable); consumer lag flink-events-to-iceberg=200"
+   },
+   {
+    "tool": "get_pods",
+    "finding": "All kafka namespace pods last terminated ~129 min ago with exit_code=255 reason=Unknown (classic PodChaos kill): lakehouse-dual-role-0, -1, -2, kafka-admin, lakehouse-kafka-exporter all at 129.3\u2013129.4 min ago; strimzi-cluster-operator terminated 117 min ago with Error/exit 1 (cascading restart)"
+   },
+   {
+    "tool": "get_flink_job_status",
+    "finding": "Flink JM last terminated 129.4 min ago exit 255/Unknown; job restarted 127.9 min ago, state=RUNNING, 28 completed checkpoints in last 5 min, 0 failed, lag=200"
+   },
+   {
+    "tool": "get_recent_changes",
+    "finding": "chaos-mesh-local deployed 133.1 min ago (rev 9187ff9e9e6f)\u2014correlates exactly with mass pod kills; chaos-mesh-local deployed again 15.5 and 32.5 min ago suggesting an active or updated experiment"
+   },
+   {
+    "tool": "get_nodes",
+    "finding": "All 3 worker nodes Ready, no pressure, no cordons; lakehouse-worker2 (zone-b, hosts broker-0) is healthy\u2014fault is network/chaos, not node failure"
+   },
+   {
+    "tool": "search_runbooks",
+    "finding": "Runbook docs/runbooks/kafka.md#kafkabrokerdown: broker Running+Ready but metrics not scraped = network cut, not crash. Do NOT restart. Escalate to network owner; Kafka keeps serving with 2 brokers."
+   }
+  ],
+  "proposed_action": {
+   "action": "escalate",
+   "parameters": {
+    "namespace": "",
+    "pod": "",
+    "table": ""
+   },
+   "rationale": "Broker lakehouse-dual-role-0 is Running/Ready but its network is impaired\u2014Prometheus cannot reach its scrape port and its partitions are under-replicated. The runbook explicitly prohibits restarting a network-isolated broker (restart cannot fix the network fault and destroys evidence). The root cause is a live Chaos Mesh experiment; a human must inspect active ChaosEngine/NetworkChaos objects and remove or end the experiment targeting broker-0 or lakehouse-worker2. The most recent chaos-mesh deployment was only 15 minutes ago, so an experiment may be freshly applied."
+  },
+  "runbook": "docs/runbooks/kafka.md#kafkabrokerdown",
+  "follow_ups": [
+   "Check active Chaos Mesh experiments: kubectl get networkchaos,podchaos -A and confirm whether one targets lakehouse-dual-role-0 or lakehouse-worker2 (zone-b)",
+   "If a NetworkChaos experiment is active, end/suspend it so broker-0's network is restored and Prometheus scraping recovers",
+   "Monitor under_replicated_partitions: should drain to 0 once broker-0 rejoins the ISR; alert if it does not fall within 10\u201315 min of network restoration",
+   "Verify active_controllers returns to 1 after broker-0 is reachable\u2014currently reads 0 as a scrape artifact, but confirms broker-0 is the KRaft controller",
+   "Review the chaos-mesh-local deployments at 15 and 32 minutes ago (revisions 47886843e767, c702990f596b) to understand what new experiments were introduced",
+   "Ensure chaos experiment schedules or one-shots are tracked and scoped so they do not target production Kafka without a maintenance window"
+  ]
+ },
+ "tool_calls": [
+  {
+   "seq": 1,
+   "tool": "get_kafka_status",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"strimzi\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\",\"reason\":null,\"message\":\"\"}],\"kafka_version\":\"4.3.1\"},\"brokers\":[{\"name\":\"lakehouse-dual-role-0\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":2,\"node\":\"lakehouse-worker2\",\"age_minutes\":1805.4,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.3}},{\"name\":\"lakehouse-dual-role-1\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":1,\"node\":\"lakehouse-worker3\",\"age_minutes\":225.1,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.4}},{\"name\":\"lakehouse-dual-role-2\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":2,\"node\":\"lakehouse-worker\",\"age_minutes\":1804.8,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.4}}],\"metrics\":{\"brokers_scraped_up\":{\"lakehouse-dual-role-0\":false,\"lakehouse-dual-role-1\":true,\"lakehouse-dual-role-2\":true},\"under_replicated_partitions\":60.0,\"under_min_isr_partitions\":0.0,\"offline_partitions\":0.0,\"active_controllers\":0.0},\"consumer_lag\":{\"flink-events-to-iceberg\":200.0}}",
+   "replay_miss": false
+  },
+  {
+   "seq": 2,
+   "tool": "get_nodes",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"nodes\":[{\"name\":\"lakehouse-control-plane\",\"ready\":true,\"zone\":null,\"problems\":[],\"unschedulable\":false,\"taints\":[\"node-role.kubernetes.io/control-plane:NoSchedule\"]},{\"name\":\"lakehouse-worker\",\"ready\":true,\"zone\":\"zone-a\",\"problems\":[],\"unschedulable\":false,\"taints\":[]},{\"name\":\"lakehouse-worker2\",\"ready\":true,\"zone\":\"zone-b\",\"problems\":[],\"unschedulable\":false,\"taints\":[]},{\"name\":\"lakehouse-worker3\",\"ready\":true,\"zone\":\"zone-c\",\"problems\":[],\"unschedulable\":false,\"taints\":[]}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 3,
+   "tool": "search_runbooks",
+   "arguments": {
+    "query": "KafkaBrokerDown"
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"results\":[{\"runbook\":\"docs/runbooks/kafka.md#kafkabrokerdown\",\"title\":\"Runbook: Kafka\",\"heading\":\"KafkaBrokerDown\",\"text\":\"**Meaning:** fewer than 3 brokers are reachable for 2 minutes.\\n**Impact:** none yet for clients (RF=3, min ISR 2), but there is no margin left: one more loss stops writes.\\n**Diagnose:** `kc -n kafka get pods -o wide` (which broker, which node); `kc -n kafka describe pod <broker>`; broker logs in Loki: `{namespace=\\\"kafka\\\", pod=\\\"<broker>\\\"}`. On a node failure, the pod cannot move to another zone (its volume is zonal); on EKS the per-zone node group replaces the node. A broker that is Running and Ready but still not reachable (its metrics endpoint not scraped, its replicas out of the ISR, the other brokers logging connection timeouts to it) is cut off from the network, not crashed: check NetworkPolicies, the node's network and recent changes (including chaos experiments).\\n**Fix:** Strimzi restarts a crashed broker. If the pod is Pending, check the node and its volume. Do not delete the PVC: the broker would rejoin empty and have to re-replicate everything. Do not restart a broker that is cut off from the network: the restart does not reach the network fault, and it removes the evidence (its connection errors and ISR history). Escalate to whoever owns the network; Kafka keeps serving with two brokers.\"}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 4,
+   "tool": "get_pod_logs",
+   "arguments": {
+    "namespace": "kafka",
+    "pod": "lakehouse-dual-role-0",
+    "container": "kafka",
+    "tail": 80
+   },
+   "is_error": true,
+   "duration_ms": 0,
+   "result": "data source error: no data returned for this request",
+   "replay_miss": true
+  },
+  {
+   "seq": 5,
+   "tool": "get_events",
+   "arguments": {
+    "namespace": "kafka"
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"namespace\":\"kafka\",\"event_count\":0,\"events\":[]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 6,
+   "tool": "query_prometheus",
+   "arguments": {
+    "query": "kafka_server_replicamanager_underreplicatedpartitions",
+    "range_minutes": 60,
+    "step_seconds": 120
+   },
+   "is_error": true,
+   "duration_ms": 0,
+   "result": "data source error: no data returned for this request",
+   "replay_miss": true
+  },
+  {
+   "seq": 7,
+   "tool": "query_loki",
+   "arguments": {
+    "query": "{namespace=\"kafka\", pod=\"lakehouse-dual-role-0\"}",
+    "minutes": 30,
+    "limit": 50
+   },
+   "is_error": true,
+   "duration_ms": 0,
+   "result": "data source error: no data returned for this request",
+   "replay_miss": true
+  },
+  {
+   "seq": 8,
+   "tool": "get_flink_job_status",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"operator\":{\"job_state\":\"RUNNING\",\"desired_state\":\"running\",\"lifecycle_state\":\"STABLE\",\"job_manager_status\":\"READY\",\"error\":null,\"job_started_minutes_ago\":127.9},\"pods\":[{\"name\":\"events-to-iceberg-675465b97d-gpxtd\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":1,\"node\":\"lakehouse-worker\",\"age_minutes\":412.4,\"last_termination\":{\"container\":\"flink-main-container\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.4},\"component\":\"jobmanager\"},{\"name\":\"events-to-iceberg-taskmanager-2-1\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":0,\"node\":\"lakehouse-worker3\",\"age_minutes\":127.7,\"component\":\"taskmanager\"}],\"metrics\":{\"uptime_seconds\":7653,\"restarts_last_15m\":0.0,\"completed_checkpoints_last_5m\":28.23,\"failed_checkpoints_last_10m\":0.0,\"last_checkpoint_duration_ms\":1154.0,\"backpressured_fraction_10m\":0.0,\"consumer_lag\":200.0}}",
+   "replay_miss": false
+  },
+  {
+   "seq": 9,
+   "tool": "get_recent_changes",
+   "arguments": {
+    "hours": 4
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"hours\":24,\"changes\":[{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,47886843e767\",\"deployed_minutes_ago\":15.5},{\"application\":\"platform-local\",\"revision\":\"47886843e767\",\"deployed_minutes_ago\":17.2},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,c702990f596b\",\"deployed_minutes_ago\":19.8},{\"application\":\"langfuse-local\",\"revision\":\"2.1.5,c702990f596b\",\"deployed_minutes_ago\":20.8},{\"application\":\"langfuse-local\",\"revision\":\"2.1.5,496cc7deaf72\",\"deployed_minutes_ago\":31.9},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,496cc7deaf72\",\"deployed_minutes_ago\":32.5},{\"application\":\"platform-local\",\"revision\":\"496cc7deaf72\",\"deployed_minutes_ago\":33.6},{\"application\":\"root\",\"revision\":\"496cc7deaf72\",\"deployed_minutes_ago\":34.1},{\"application\":\"ai-ops-access-local\",\"revision\":\"c3f9dacefde3\",\"deployed_minutes_ago\":80.7},{\"application\":\"platform-local\",\"revision\":\"c3f9dacefde3\",\"deployed_minutes_ago\":81.1},{\"application\":\"kube-prometheus-stack-local\",\"revision\":\"92.14.1,c3f9dacefde3\",\"deployed_minutes_ago\":82.1},{\"application\":\"root\",\"revision\":\"c3f9dacefde3\",\"deployed_minutes_ago\":82.2},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,c3f9dacefde3\",\"deployed_minutes_ago\":82.4},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,9187ff9e9e6f\",\"deployed_minutes_ago\":133.1},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,94fa152c3de6\",\"deployed_minutes_ago\":300.6},{\"application\":\"platform-local\",\"revision\":\"94fa152c3de6\",\"deployed_minutes_ago\":300.9},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,f1ffc193c9ee\",\"deployed_minutes_ago\":331.9},{\"application\":\"root\",\"revision\":\"f1ffc193c9ee\",\"deployed_minutes_ago\":332.0},{\"application\":\"platform-local\",\"revision\":\"f132520bd4df\",\"deployed_minutes_ago\":335.3},{\"application\":\"chaos-mesh-local\",\"revision\":\"2.8.5,f132520bd4df\",\"deployed_minutes_ago\":336.5},{\"application\":\"root\",\"revision\":\"f132520bd4df\",\"deployed_minutes_ago\":336.6},{\"application\":\"kube-prometheus-stack-local\",\"revision\":\"92.14.1,e36fee8bfea0\",\"deployed_minutes_ago\":340.9},{\"application\":\"platform-local\",\"revision\":\"d54fd2069d8c\",\"deployed_minutes_ago\":348.3},{\"application\":\"platform-local\",\"revision\":\"9759ad30e185\",\"deployed_minutes_ago\":352.0},{\"application\":\"platform-local\",\"revision\":\"7ca3a9ab5a7e\",\"deployed_minutes_ago\":356.1},{\"application\":\"external-secrets-local\",\"revision\":\"2.14.0,7ca3a9ab5a7e\",\"deployed_minutes_ago\":356.3},{\"application\":\"root\",\"revision\":\"7ca3a9ab5a7e\",\"deployed_minutes_ago\":356.8},{\"application\":\"alloy-local\",\"revision\":\"1.15.0,0daf9be12168\",\"deployed_minutes_ago\":367.5},{\"application\":\"alloy-local\",\"revision\":\"1.15.0,94da09d61dd3\",\"deployed_minutes_ago\":371.9},{\"application\":\"platform-local\",\"revision\":\"f7c7ae415f8e\",\"deployed_minutes_ago\":383.9}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 10,
+   "tool": "query_prometheus",
+   "arguments": {
+    "query": "up{job=~\".*kafka.*\", namespace=\"kafka\"}",
+    "range_minutes": 60,
+    "step_seconds": 120
+   },
+   "is_error": true,
+   "duration_ms": 0,
+   "result": "data source error: no data returned for this request",
+   "replay_miss": true
+  },
+  {
+   "seq": 11,
+   "tool": "get_pods",
+   "arguments": {
+    "namespace": "kafka"
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"namespace\":\"kafka\",\"pod_count\":7,\"pods\":[{\"name\":\"kafka-admin-7685c6b46c-lzrq4\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":2,\"node\":\"lakehouse-worker2\",\"age_minutes\":1853.8,\"last_termination\":{\"container\":\"kafka-admin\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.3}},{\"name\":\"lakehouse-dual-role-0\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":2,\"node\":\"lakehouse-worker2\",\"age_minutes\":1805.4,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.3}},{\"name\":\"lakehouse-dual-role-1\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":1,\"node\":\"lakehouse-worker3\",\"age_minutes\":225.1,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.4}},{\"name\":\"lakehouse-dual-role-2\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":2,\"node\":\"lakehouse-worker\",\"age_minutes\":1804.8,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.4}},{\"name\":\"lakehouse-entity-operator-6458c99b6-4q7rg\",\"phase\":\"Running\",\"ready\":\"2/2\",\"restarts\":9,\"node\":\"lakehouse-worker\",\"age_minutes\":1776.3,\"last_termination\":{\"container\":\"user-operator\",\"reason\":\"Completed\",\"exit_code\":0,\"finished_minutes_ago\":128.6}},{\"name\":\"lakehouse-kafka-exporter-58c78bc654-8nxqd\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":3,\"node\":\"lakehouse-worker2\",\"age_minutes\":1775.9,\"last_termination\":{\"container\":\"lakehouse-kafka-exporter\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":129.3}},{\"name\":\"strimzi-cluster-operator-5b9c9c57fd-zvfkg\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":4,\"node\":\"lakehouse-worker2\",\"age_minutes\":1806.5,\"last_termination\":{\"container\":\"strimzi-cluster-operator\",\"reason\":\"Error\",\"exit_code\":1,\"finished_minutes_ago\":117.1}}]}",
+   "replay_miss": false
+  }
+ ],
+ "turns": 5,
+ "usage": {
+  "input": 30944,
+  "output": 4359,
+  "cache_read": 16630,
+  "cache_write": 0
+ },
+ "models_used": [
+  "claude-sonnet-4-6"
+ ],
+ "unsupported_evidence": [],
+ "reasoning_summaries": [
+  "Let me investigate the KafkaBrokerDown alert. I'll start by checking multiple things in parallel.",
+  "Interesting. All broker pods are Running and Ready (1/1), but `brokers_scraped_up` shows `lakehouse-dual-role-0` is false. So broker 0 is running but its metrics endpoint is not being scraped. Also there are 60 under-replicated partitions and 0 active controllers (which is very concerning). \n\nLet me check:\n1. The broker 0 logs to see what's happening\n2. Events in the kafka namespace\n3. Flink job status given the consumer lag\n\nThe 0 active controllers is very alarming - this means KRaft has no active controller, which could explain why things are degraded.\nI'll start by pulling broker 0's logs and the recent namespace events to diagnose this.\n\n",
+  "Pod logs are not available for broker 0. Events in kafka namespace are empty. Let me try querying Loki for broker 0 logs, check the previous run of broker 0, and also check recent changes and flink status.",
+  "This is very revealing! Looking at the recent changes:\n- `chaos-mesh-local` was deployed ~133 minutes ago (revision `9187ff9e9e6f`) \n- All broker terminations happened ~129.3-129.4 minutes ago (exit code 255, reason \"Unknown\")\n- The alert fired at 07:54:48Z\n\nThe timing lines up perfectly: Chaos Mesh was deployed ~133 minutes ago, and all three broker pods were terminated ~129 minutes ago (exit code 255 = network/kill). This strongly suggests a Chaos Mesh experiment was run against the Kafka brokers.\nChecking current state, all three broker pods are now Running and Ready, but `lakehouse-dual-role-0` shows `brokers_scraped_up: false`, meaning Prometheus can't scrape its metrics even though the pod looks healthy. There are 60 under-replicated partitions but zero under-min-ISR or offline, and concerningly zero active controllers for a KRaft cluster, plus consumer lag sitting at 200. The alert's \"only 2 of 3 brokers reachable\" message lines up with broker 0 failing to be scraped despite appearing Running/Ready.\n\nThis matches the runbook pattern of a broker that's technically Running and Ready but cut off from the network rather than crashed -- which points me toward checking NetworkPolicies, node networking, and recent chaos experiments, since the chaos-mesh deployment ~133 minutes ago lines up almost exactly with the broker terminations ~129 minutes ago, suggesting it may have caused a network partition isolating broker 0. The zero active controllers is worrying since these are dual-role nodes acting as both brokers and controllers, but given there are zero offline partitions and zero under-min-ISR, the cluster seems to be holding together despite this.\n\nI'm realizing the zero active-controllers reading is probably a scrape artifact: KRaft reports active.controller.count as 1 only on the active controller and 0 elsewhere, so if broker 0 is the active controller and its metrics endpoint isn't being scraped, the visible sum from brokers 1 and 2 would naturally show as 0. ",
+  "This is very revealing now. Almost ALL pods in the kafka namespace were terminated ~129 minutes ago with exit code 255 and reason \"Unknown\". This includes:\n- kafka-admin-7685c6b46c-lzrq4 (exit_code 255, 129.3 min ago)\n- lakehouse-dual-role-0 (exit_code 255, 129.3 min ago)\n- lakehouse-dual-role-1 (exit_code 255, 129.4 min ago)\n- lakehouse-dual-role-2 (exit_code 255, 129.4 min ago)\n- lakehouse-kafka-exporter and strimzi-cluster-operator also terminated around this window, along with the Flink JobManager, all with the same exit code 255 and \"Unknown\" reason. This pattern is classic for a Chaos Mesh pod-kill experiment, and the timing lines up closely with the chaos-mesh deployment that went out roughly 133 minutes ago.\n\nStill firing though -- broker 0's metrics endpoint isn't being scraped by Prometheus even though the pod itself is Running/Ready, which is what's triggering the \"2 of 3 brokers reachable\" alert. This could be a lingering NetworkChaos experiment targeting broker 0, or a transient post-restart issue, especially since there were more chaos-mesh deployments 15 and 32 minutes ago that may have introduced new experiments. The 60 under-replicated partitions are a concern but since offline and under-min-ISR counts are both zero, reads and writes are still working, and the 0 active controllers reading is probably just a symptom of broker 0 (the active controller) being unscrapable rather than an actual controller outage.\n\nGiven the runbook explicitly warns not to restart a broker cut off from the network, this looks like a chaos-induced network partition rather than something a restart would fix. I should escalate so a human can check for active Chaos Mesh experiments, confirm whether a NetworkChaos experiment is targeting broker 0, remove it if present, and investigate why the metrics port is unreachable.\n\n"
+ ],
+ "trace_id": "",
+ "error": ""
+}

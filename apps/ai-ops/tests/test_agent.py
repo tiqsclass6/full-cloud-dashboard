@@ -98,6 +98,21 @@ async def test_invalid_output_is_retried_once_then_rejected():
 
 
 @pytest.mark.anyio
+async def test_an_answer_before_any_tool_call_is_sent_back_once():
+    model, calls = scripted(answer(), [ToolCallPart("get_kafka_status", {}, "a")], answer())
+    inv = await Agent(AgentConfig(), model, FakeBackend()).investigate(TRIGGER)
+    assert inv.outcome == "diagnosed" and [c.tool for c in inv.tool_calls] == ["get_kafka_status"]
+    assert any(isinstance(p, RetryPromptPart) for p in calls[1][0][-1].parts)
+
+
+@pytest.mark.anyio
+async def test_a_diagnosis_without_investigating_is_not_accepted():
+    model, _ = scripted(answer(), answer())
+    inv = await Agent(AgentConfig(), model, FakeBackend()).investigate(TRIGGER)
+    assert inv.outcome == "invalid_output" and inv.diagnosis is None
+
+
+@pytest.mark.anyio
 async def test_unknown_tool_never_reaches_the_backend():
     model, calls = scripted([ToolCallPart("delete_namespace", {"name": "kafka"}, "x")], answer())
     backend = FakeBackend()
@@ -108,7 +123,7 @@ async def test_unknown_tool_never_reaches_the_backend():
 
 @pytest.mark.anyio
 async def test_evidence_from_tools_never_called_is_flagged():
-    model, _ = scripted(answer(evidence_tool="get_kafka_status"))
+    model, _ = scripted([ToolCallPart("get_nodes", {}, "a")], answer(evidence_tool="get_kafka_status"))
     inv = await Agent(AgentConfig(), model, FakeBackend()).investigate(TRIGGER)
     assert inv.outcome == "diagnosed" and inv.unsupported_evidence == ["get_kafka_status"]
 

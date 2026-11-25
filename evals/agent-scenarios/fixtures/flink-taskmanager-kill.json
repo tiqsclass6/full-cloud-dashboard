@@ -327,7 +327,7 @@
    "arguments": {
     "query": "FlinkCheckpointFailures"
    },
-   "result": "{\"results\":[{\"runbook\":\"docs/runbooks/pipeline.md#flinkcheckpointfailures\",\"title\":\"Runbook: streaming pipeline (Kafka to Flink to Iceberg)\",\"heading\":\"FlinkCheckpointFailures\",\"text\":\"**Meaning:** at least one checkpoint failed in 10 minutes. The job tolerates 3 consecutive failures before restarting.\\n**Diagnose and fix:** as FlinkCheckpointsStalled. A single failure during a broker restart or node drain is expected.\"}]}",
+   "result": "{\"results\":[{\"runbook\":\"docs/runbooks/pipeline.md#flinkcheckpointfailures\",\"title\":\"Runbook: streaming pipeline (Kafka to Flink to Iceberg)\",\"heading\":\"FlinkCheckpointFailures\",\"text\":\"**Meaning:** at least one checkpoint failed in 10 minutes. The job tolerates 3 consecutive failures before restarting.\\n**Impact:** if failures keep happening, the job will eventually restart, potentially delaying data visibility in Iceberg.\\n**Diagnose and fix:** as FlinkCheckpointsStalled. A single failure during a broker restart or node drain is expected.\"}]}",
    "is_error": false
   }
  ]

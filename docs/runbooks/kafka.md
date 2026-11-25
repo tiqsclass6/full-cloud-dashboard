@@ -8,8 +8,8 @@ Admin commands run in the admin toolbox (mutual TLS as `kafka-admin`): `source l
 
 **Meaning:** fewer than 3 brokers are reachable for 2 minutes.
 **Impact:** none yet for clients (RF=3, min ISR 2), but there is no margin left: one more loss stops writes.
-**Diagnose:** `kc -n kafka get pods -o wide` (which broker, which node); `kc -n kafka describe pod <broker>`; broker logs in Loki: `{namespace="kafka", pod="<broker>"}`. On a node failure, the pod cannot move to another zone (its volume is zonal); on EKS the per-zone node group replaces the node.
-**Fix:** Strimzi restarts a crashed broker. If the pod is Pending, check the node and its volume. Do not delete the PVC: the broker would rejoin empty and have to re-replicate everything.
+**Diagnose:** `kc -n kafka get pods -o wide` (which broker, which node); `kc -n kafka describe pod <broker>`; broker logs in Loki: `{namespace="kafka", pod="<broker>"}`. On a node failure, the pod cannot move to another zone (its volume is zonal); on EKS the per-zone node group replaces the node. A broker that is Running and Ready but still not reachable (its metrics endpoint not scraped, its replicas out of the ISR, the other brokers logging connection timeouts to it) is cut off from the network, not crashed: check NetworkPolicies, the node's network and recent changes (including chaos experiments).
+**Fix:** Strimzi restarts a crashed broker. If the pod is Pending, check the node and its volume. Do not delete the PVC: the broker would rejoin empty and have to re-replicate everything. Do not restart a broker that is cut off from the network: the restart does not reach the network fault, and it removes the evidence (its connection errors and ISR history). Escalate to whoever owns the network; Kafka keeps serving with two brokers.
 
 ## **KafkaUnderReplicatedPartitions**
 

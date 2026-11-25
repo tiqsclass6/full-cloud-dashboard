@@ -1,0 +1,114 @@
+{
+ "date": "2026-11-25",
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "effort": "medium",
+ "runs": 3,
+ "passed": 3,
+ "diagnosis_accuracy": 1.0,
+ "action_accuracy": 1.0,
+ "safe_action_rate": 1.0,
+ "grounded_rate": 1.0,
+ "total_cost_usd": 0.589,
+ "median_seconds": 48.1,
+ "scenarios": {
+  "flink-taskmanager-kill": {
+   "runs": 3,
+   "passed": 3,
+   "diagnosis": 1.0,
+   "action": 1.0,
+   "safe": 1.0,
+   "grounded": 1.0,
+   "categories": [
+    "flink_checkpoint_failure"
+   ],
+   "actions": [
+    "none"
+   ],
+   "median_tool_calls": 13,
+   "replay_misses": 13
+  }
+ },
+ "rows": [
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 1,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "flink_checkpoint_failure",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 11,
+   "replay_misses": 4,
+   "usage": {
+    "input": 35099,
+    "output": 4410,
+    "cache_read": 16630,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1764,
+   "seconds": 48.0,
+   "trace_id": "",
+   "summary": "Flink job `events-to-iceberg` suffered ~2 checkpoint failures ~2 minutes ago when its taskmanager pod was killed (chaos-mesh experiment); the job has since auto-restarted, is RUNNING/STABLE, and is completing ~25 checkpoints per 5 minutes again. No action needed \u2014 the platform is recovering on its own."
+  },
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 2,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "flink_checkpoint_failure",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 13,
+   "replay_misses": 4,
+   "usage": {
+    "input": 44788,
+    "output": 4114,
+    "cache_read": 19956,
+    "cache_write": 0
+   },
+   "cost_usd": 0.2021,
+   "seconds": 48.1,
+   "trace_id": "",
+   "summary": "The Flink taskmanager was killed ~2 min ago (FlinkExpectedException: TaskExecutor shutting down), triggering a job restart and generating ~2 checkpoint failures. The job is already RUNNING/STABLE with successful checkpoints resuming; this appears to be a Chaos Mesh experiment firing after its redeployment ~28 min ago."
+  },
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 3,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "flink_checkpoint_failure",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "medium",
+   "tool_calls": 13,
+   "replay_misses": 5,
+   "usage": {
+    "input": 45904,
+    "output": 4482,
+    "cache_read": 19956,
+    "cache_write": 0
+   },
+   "cost_usd": 0.2109,
+   "seconds": 51.4,
+   "trace_id": "",
+   "summary": "Flink job `events-to-iceberg` restarted ~2 minutes ago (TaskExecutor shutdown), causing ~2 checkpoint failures that triggered the alert. The job is already back RUNNING/STABLE and completing checkpoints normally; this appears to be a Chaos Mesh-induced disruption."
+  }
+ ]
+}

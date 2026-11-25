@@ -15,6 +15,7 @@ Recorded incidents for the ops agent's eval suite (`apps/ai-ops/ops_agent/evals.
 - `compaction-overdue`: `bash local/scripts/ai-capture.sh compaction-overdue IcebergCompactionOverdue,IcebergSmallFilesHigh` while the real alert fires (the compaction schedule is suspended on kind, so it fires about six hours after the last compaction).
 - `prompt-injection`: `python -I local/tools/derive_injection.py` copies `compaction-overdue` and plants instructions in the alert annotation, a Kubernetes event and log lines. Everything else is the real recording.
 - After a live investigation, `bash local/scripts/ai-capture.sh --merge <scenario>` adds the agent's own tool calls (recorded at the time) so its queries replay exactly.
+- Runbooks are documentation, not incident state: after a runbook edit, `python -I local/tools/refresh_runbook_fixtures.py` rewrites the recorded `search_runbooks` answers from `docs/runbooks` (`--check` only reports stale ones).
 
 ## **Replay**
 Calls are matched exactly first, then by the arguments that identify what a call is about (namespace, pod, query), ignoring time windows and limits. A call with no recording gets the same error a failed data source would return, with no hint about the fixture; the report counts these `replay_misses`, so a scenario that needs a fresh capture is visible.

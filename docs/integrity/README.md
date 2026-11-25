@@ -111,12 +111,26 @@ One run after ADR 0013 (a local script, not committed): 300 events through the A
 
 The same deletes were not repeated with the old, table-derived ranges; there both rows sat at an edge of their partition's range, the position that left no hole on EKS. The lookup itself was also checked against a broker container (`apps/spark-jobs/run-kafka-it.sh`: window bounds, the cap at Flink's committed offset, a partition without a committed offset, an empty partition), and the new identity by `kafka-security-test.sh` (it can list offsets and read Flink's committed offsets, not read or write records).
 
+## **Losses at the ends of a partition on EKS (2026-11-25, dev)**
+One run on a fresh dev environment after [**ADR 0013**](../architecture-decisions/0013-reconcile-bounds-from-kafka.md): `make aws-smoke` (5,000 events, 500 retried copies), then the lowest offset of one partition and the highest of another deleted with an Athena `DELETE`, found, and replayed with `replay.sh`. The run is in [**aws.md**](../aws.md#fifth-run-2026-11-25-dev-kafka-bounds-on-eks).
+
+| **Check**                          | **Result**                                                                                   |
+| ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Reconcile after the smoke test** | 5,500 checked (5,000 + 500), 0 missing, 0 partitions behind Flink; 22.0 s                    |
+| **Loss of `p3:0` and `p1:749`**    | 2 missing, `p1:749-749` and `p3:0-0`; `LakehouseRecordsMissing` firing about 2 minutes later |
+| **The 03:20 scheduled reconcile**  | The same 2 missing, found on its own; summary has `partitions_behind_flink` 0                |
+| **Replay of each lost row**        | Dry run and apply `REPLAY`; stored as `p3:1250` and `p1:750` with `replayed_from`            |
+| **A second replay**                | `ALREADY_REPLAYED`, nothing sent                                                             |
+| **Reconcile after both replays**   | 5,502 checked, 0 missing, 2 replayed; alert inactive again                                   |
+| **`kafka-security-test.sh`**       | All passed, including the 4 checks for `lakehouse-reconcile`                                 |
+
+`p3:0` is the case the 2026-11-24 run missed (offset 0 of a fresh partition, then `p5:0`). `p1:749` was the last offset of its partition: with ranges from the tables it would have been reported only after a later record in partition 1. Partition 2 received no events, so it had no range to check (the summary counts 5 partitions).
+
 ## **What this does not show**
 - A table the size of a real day (EKS ran with 5,000 rows).
 - Replaying an undecodable record that decodes once its schema is fixed. The drill's records are not Avro, so they stay undecodable; the decision rules for that case are unit tests (`ReplayTest`).
 - `WAIT_FOR_DEDUPE_TTL`, `NOT_IN_KAFKA`, `EVENT_ID_STORED` and `NOT_SENDABLE` on a cluster: unit tests only. The replay of more than one record at once.
 - A record lost after Flink's committed offset: it is checked only once Flink commits past it.
-- The Kafka-bounded check on EKS. It ran on kind and against a broker container.
-- The scheduled job over time. Locally it is suspended like the other Spark schedules; the drill ran it as one-off runs, which disarm the staleness alert. On EKS it ran on schedule once. `LakehouseReconciliationStale` is covered by promtool tests only.
+- The scheduled job over time. Locally it is suspended like the other Spark schedules; the drill ran it as one-off runs, which disarm the staleness alert. On EKS it ran on schedule once in each of two runs. `LakehouseReconciliationStale` is covered by promtool tests only.
 - The ops agent's handling of the new alerts (live model runs are blocked, see [**ai-ops.md**](../ai-ops.md#not-verified)).
 - Single runs.

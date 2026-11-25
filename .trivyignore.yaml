@@ -71,3 +71,9 @@ vulnerabilities:
     paths: ["opt/flink/usrlib/job.jar"]
     statement: jline builtins, shaded in hadoop-client-runtime; never used by the job (no shell).
     expired_at: 2027-01-31
+  - id: CVE-2026-77423
+    paths: ["opt/flink/usrlib/job.jar"]
+    statement: >-
+      jline builtins (regex DoS in the interactive less viewer), shaded in hadoop-client-runtime;
+      never used by the job (no shell). Hadoop 3.4.3 and 3.5.0 still bundle jline 3.9.0.
+    expired_at: 2027-01-31

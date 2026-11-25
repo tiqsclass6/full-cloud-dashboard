@@ -199,3 +199,29 @@ A single run to check the integrity work since PR #9 (lineage, the reconciliatio
 - **AgentCore beyond creating the Gateway**, the model, Hermes, and the security and AI suites (not run).
 - **The second Argo CD pass in `gitops-bootstrap.sh`.** The same command was run by hand on this cluster; a fresh bootstrap has not run it.
 - **Spark jobs on dev under real load** with 250 m requests: the run had 5,000 rows.
+
+## **Fifth run (2026-11-25, dev, Kafka bounds on EKS)**
+
+A single run to check [**ADR 0013**](architecture-decisions/0013-reconcile-bounds-from-kafka.md) (the reconciliation's offset ranges from Kafka) on EKS, plus `aws-security-test`. No AgentCore Runtime, no `aws-ai-test` (still no Bedrock access to Claude). The environment existed from 00:13 to 04:11 UTC (3 h 58 min).
+
+| **Step**                | **Result**                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **`terraform apply`**   | 165 resources in one apply (14.5 minutes)                                                                    |
+| **`aws-up`**            | Third attempt passed the gate; it then timed out on `platform-dev` Degraded (below), fixed by hand           |
+| **`aws-smoke`**         | Passed: brokers in 3 zones, RF=3, Flink RUNNING with IRSA, Athena 5,000 rows, 5,000 distinct                 |
+| **Integrity checks**    | Passed; [**integrity results**](integrity/README.md#losses-at-the-ends-of-a-partition-on-eks-2026-11-25-dev) |
+| **`aws-security-test`** | Passed: signatures, synced secrets, RDS TLS, audit; Kafka 14, network policy 9, policy 22 checks             |
+| **`aws-down`**          | Passed in 21 minutes: 165 destroyed, no leftovers                                                            |
+
+### **What the run found here (Fifth run)**
+
+- **Docker Desktop was not running** at the first `aws-up`; the preflight stopped it before any build. Started, then rerun.
+- **A new HIGH finding in the Flink job jar.** CVE-2026-77423 (a regular-expression DoS in JLine's interactive `less` viewer) in `jline-builtins` 3.9.0, shaded in `hadoop-client-runtime`. Hadoop 3.4.3 and 3.5.0 still bundle JLine 3.9.0, and the job never opens a shell, so it is an accepted risk in `.trivyignore.yaml` next to CVE-2026-77422 (expires 2027-01-31).
+- **A second rollout of `ingestion-service` got stuck.** The `platform-dev` app synced before Kyverno and its CRDs were installed: the Deployment was created at 01:06, the image-signature policy only at 01:24. Kyverno then pinned the image to its digest in the Deployment template (`mutateDigest`, through autogen), which started a second rollout. With `maxUnavailable: 0` and the zone spread, the surge pod could only go to zone c, whose node had 93 % of its CPU requested. It stayed `Pending` for an hour and `aws-up` timed out. Fix by hand: the Spark operator and the iceberg-exporter (250 m) were moved to zone a (other nodes cordoned for a moment, pods deleted), and the rollout finished. Not fixed in the repository: ordering the platform after Kyverno needs an Argo CD change that only an AWS run can verify.
+- **Kyverno's background scan could not read ECR** (`401 Unauthorized` in a policy-report event on the pending pod). Admission verification worked; `aws-security-test` passed the signature checks.
+
+### **Not verified here (Fifth run)**
+
+- **AgentCore beyond creating the Gateway**, the model, Hermes, and `aws-ai-test` (not run).
+- **A fix for the Kyverno ordering**; the next fresh install can hit the same stuck rollout.
+- **Spark jobs on dev under real load**: the run had 5,000 rows. The second Argo CD pass in `gitops-bootstrap.sh` ran on this fresh bootstrap (`Argo CD ServiceMonitors created`).

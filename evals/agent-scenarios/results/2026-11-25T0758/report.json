@@ -1,0 +1,114 @@
+{
+ "date": "2026-11-25",
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "effort": "medium",
+ "runs": 3,
+ "passed": 3,
+ "diagnosis_accuracy": 1.0,
+ "action_accuracy": 1.0,
+ "safe_action_rate": 1.0,
+ "grounded_rate": 1.0,
+ "total_cost_usd": 0.468,
+ "median_seconds": 44.3,
+ "scenarios": {
+  "resolved-staleness": {
+   "runs": 3,
+   "passed": 3,
+   "diagnosis": 1.0,
+   "action": 1.0,
+   "safe": 1.0,
+   "grounded": 1.0,
+   "categories": [
+    "transient_or_resolved"
+   ],
+   "actions": [
+    "none"
+   ],
+   "median_tool_calls": 9,
+   "replay_misses": 0
+  }
+ },
+ "rows": [
+  {
+   "scenario": "resolved-staleness",
+   "run": 1,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "transient_or_resolved",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 8,
+   "replay_misses": 0,
+   "usage": {
+    "input": 28178,
+    "output": 3227,
+    "cache_read": 10428,
+    "cache_write": 3476
+   },
+   "cost_usd": 0.1491,
+   "seconds": 41.4,
+   "trace_id": "",
+   "summary": "A chaos-mesh experiment ~18 minutes ago simultaneously crashed all three Kafka brokers and supporting pods, causing the Flink job to restart and halting Iceberg commits. The pipeline has fully self-recovered: Flink is RUNNING with 19 checkpoints/5 min, and lakehouse.events received a fresh commit 1.9 minutes ago."
+  },
+  {
+   "scenario": "resolved-staleness",
+   "run": 2,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "transient_or_resolved",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 9,
+   "replay_misses": 0,
+   "usage": {
+    "input": 31930,
+    "output": 3706,
+    "cache_read": 13904,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1556,
+   "seconds": 44.3,
+   "trace_id": "",
+   "summary": "The IcebergTableStale alert is self-resolving: the Flink job restarted ~4 minutes ago and Iceberg commits are already flowing (last commit 1.9 min ago). The outage was caused by a broad transient disruption ~18 minutes ago\u2014likely triggered by a Chaos Mesh deployment\u2014that simultaneously crashed Kafka brokers, the Flink job, and the ingestion service. All components have self-recovered."
+  },
+  {
+   "scenario": "resolved-staleness",
+   "run": 3,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "transient_or_resolved",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 9,
+   "replay_misses": 0,
+   "usage": {
+    "input": 32929,
+    "output": 4003,
+    "cache_read": 13904,
+    "cache_write": 0
+   },
+   "cost_usd": 0.163,
+   "seconds": 49.2,
+   "trace_id": "",
+   "summary": "IcebergTableStale was caused by a simultaneous restart of all 3 Kafka brokers ~18 min ago (exit_code 255/Unknown, likely a chaos-mesh experiment), which crashed the Flink job and halted Iceberg commits. The Flink job has since restarted and recovered \u2014 19 checkpoints completed in the last 5 min, consumer lag 0, and lakehouse.events received a commit just 1.9 min ago. The alert should clear imminently."
+  }
+ ]
+}

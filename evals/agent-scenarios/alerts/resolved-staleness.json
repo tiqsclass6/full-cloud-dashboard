@@ -1,0 +1,35 @@
+{
+  "receiver": "ops-agent",
+  "status": "firing",
+  "groupKey": "capture/resolved-staleness",
+  "commonLabels": {
+    "alertname": "IcebergTableStale",
+    "severity": "critical"
+  },
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "IcebergTableStale",
+        "container": "iceberg-exporter",
+        "endpoint": "metrics",
+        "instance": "10.244.2.6:9400",
+        "job": "iceberg-exporter",
+        "namespace": "apps",
+        "pod": "iceberg-exporter-86cf5cd58c-gxps9",
+        "prometheus": "monitoring/kps-prometheus",
+        "service": "iceberg-exporter",
+        "severity": "critical",
+        "slo": "freshness",
+        "table": "lakehouse.events"
+      },
+      "annotations": {
+        "description": "Last commit to lakehouse.events was 10m 15s ago.",
+        "runbook_url": "docs/runbooks/pipeline.md#icebergtablestale",
+        "summary": "The events table has not received a commit for over 5 minutes"
+      },
+      "startsAt": "2026-11-25T07:45:51.721Z",
+      "fingerprint": "83981e89d7253701"
+    }
+  ]
+}

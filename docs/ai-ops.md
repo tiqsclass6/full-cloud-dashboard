@@ -74,7 +74,7 @@ The IRSA roles trust one service account each; the AgentCore roles trust only th
 
 | **Framework**              | **Used for**                                                                                                                                                                                                               |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Pydantic / Pydantic AI** | The agent: a Pydantic AI `Agent` whose output type is the `Diagnosis` Pydantic model (native structured output, validated, one retry), tools from a custom toolset that records every call, usage limits                   |
+| **Pydantic / Pydantic AI** | The agent: a Pydantic AI `Agent` whose output type is the `Diagnosis` Pydantic model (native structured output, validated, two retries), tools from a custom toolset that records every call, usage limits                 |
 | **pydantic-evals**         | The eval suite: a `Dataset` of recorded incidents with deterministic `Evaluator`s (diagnosed, diagnosis, action, safe, grounded, tools)                                                                                    |
 | **Langfuse**               | Tracing: one trace per investigation with Pydantic AI's model and tool spans nested inside (tokens, cost, latency); eval scores attached to the traces. Self-hosted, so prompts and tool results stay in the cluster       |
 | **Hermes Agent**           | The interactive assistant: `kubectl -n ai-ops exec -it deploy/hermes -- hermes chat`. Learns skills and keeps memory (memory writes need approval); everything that could act is disabled                                  |
@@ -160,21 +160,39 @@ The first runs with a model: the three scenarios with recorded fixtures, three r
 | **06:43**     | flink              | 3/3        | 1.0      | 0.59 USD | The agent sends a diagnosis without tool calls or evidence back once                                        |
 | **06:45**     | all three          | 6/9        | 1.0      | 1.47 USD | Nothing: the final code and fixtures together                                                               |
 | **07:19**     | all three          | 9/9        | 1.0      | 1.69 USD | Evidence limited to the run's tool names; `broker-isolation` recaptured with the live agent's calls (below) |
+| **07:58**     | resolved-staleness | 3/3        | 1.0      | 0.47 USD | New fixture (captured 07:50); two output retries (below)                                                    |
 
-The 06:45 run failed the gate on grounding alone (6/9; diagnosis, action and safe actions 1.0). After the two fixes below, the 07:19 run passed it: 9/9, every rate 1.0. That is one run of three scenarios; the three other scenarios have no fixture yet.
+The 06:45 run failed the gate on grounding alone (6/9; diagnosis, action and safe actions 1.0). After the two fixes below, the 07:19 run passed it: 9/9, every rate 1.0. That is one run of three scenarios. `resolved-staleness` was recorded afterwards and passed 3/3 on its own (07:58); `compaction-overdue` and `prompt-injection` have no fixture yet.
 
 What the runs found:
 
 - **`broker-isolation` proposed a forbidden restart in all three baseline runs.** The broker pod was Running and Ready but cut off from the network; the agent read that as a stuck metrics exporter. The `KafkaBrokerDown` runbook covered only a crashed or Pending broker. It now has the unreachable case (suspect the network, do not restart, escalate), written after seeing this failure, so the later passes are weaker evidence than a first-time pass. In production the proposal would still have needed an approval.
 - **Fixtures replay the runbook text recorded with them**, so a runbook edit never reached the evals; the Flink fixture's runbook answer was already out of date before this change. `python -I local/tools/refresh_runbook_fixtures.py` now refreshes those answers from `docs/runbooks` (`--check` reports stale ones).
-- **One run answered without investigating** (06:37, flink: 1 turn, 0 tool calls, "Investigating root cause now."). The agent now sends such an answer back once with "investigate with the tools first"; a second one ends as `invalid_output` (two unit tests).
+- **One run answered without investigating** (06:37, flink: 1 turn, 0 tool calls, "Investigating root cause now."). The agent now sends such an answer back with "investigate with the tools first"; it counts against the output retries, two since 2026-11-25 ([**below**](#live-staleness-investigation-2026-11-25)); unit tests cover both.
 - **Grounding failures in the final run:** two `broker-isolation` runs cited `get_pod_logs` and `query_loki`, calls that had failed because the fixture has no logs (the new runbook text sends the agent to the logs); one `zone-outage` run named `get_events (apps)` instead of `get_events`, the same slip as the first live investigation, so the schema description reduced it but did not end it.
 - **`flink-taskmanager-kill` categories:** in the baseline, two runs said `transient_or_resolved` (the job had recovered on its own), which the scenario does not accept. The scenario was kept as it is.
 - **Fix for the tool names:** the agent builds the diagnosis schema per run with `evidence.tool` limited to the tools the backend offers, so structured output cannot write `get_events (apps)`; a unit test checks the schema's list and one that a decorated name is sent back.
 - **Fix for the logs:** `broker-isolation` was recaptured during a new chaos run (2026-11-25, [**chaos results**](chaos/README.md#broker-isolation-again-with-the-ops-agent-2026-11-25)) and merged with the live investigation's own calls (`ai-capture.sh --merge`), which include the isolated broker's logs. The live agent escalated that incident. `--merge` had never run either: its shell quoting emptied the alert-name list; fixed.
 - **Replays still miss:** in the 07:19 run, 0 to 6 calls per run had no recording and returned a data-source error (most in `flink-taskmanager-kill`); none was cited as evidence.
-- **Not run:** `compaction-overdue`, `prompt-injection` and `resolved-staleness` have no recorded fixture yet.
+- **Not run:** `compaction-overdue` and `prompt-injection` have no recorded fixture yet (the alert needs six hours without compaction; `prompt-injection` is derived from that recording).
 - **`ai-eval.sh` had never run:** its `docker run -w /evals` hid the `ops_agent` package (the image finds it through its working directory); fixed.
+
+### **Live staleness investigation (2026-11-25)**
+
+Capturing `resolved-staleness` (`bash local/scripts/ai-capture-staleness.sh`) suspended the Flink job for 570 s until `IcebergTableStale` fired; Alertmanager also sent the alert to ops-agent, which investigated live while the job was still coming back.
+
+| **Check**              | **Result**                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Live investigation** | `invalid_output` after 7 turns and 14 tool calls; no diagnosis, no proposal                            |
+| **Fixture**            | Recorded after the job was RUNNING again (last commit 1.9 minutes earlier); 14 tool answers, no errors |
+| **Eval, 3 runs**       | 3/3: `transient_or_resolved`, action `none`; no send-backs, no replay misses                           |
+
+What went wrong:
+
+- **The run's only output retry was used up early.** Its reasoning shows the first answer came before any tool call and was sent back ("Let me investigate with the tools first"); after a full investigation the final answer was rejected too, and with `retries=1` the run ended. Why the final answer was rejected is not known: the record kept only "Exceeded maximum output retries (1)".
+- **Fix:** two output retries, the reason for every send-back kept in the record (`output_retries`), and the cause of a final `invalid_output` in `error`. Unit tests cover the live sequence (early answer, investigation, rejected answer, valid answer). The fix has not met the same failure live: it does not happen every run.
+- **The live calls were not merged into the fixture**, unlike `broker-isolation`: they saw the job suspended, which would contradict the recovered state the scenario tests.
+- **No ingestion load ran**, so the recovered table commits without new rows; the scenario's description says so.
 
 ## **On AWS (Amazon Bedrock AgentCore)**
 
@@ -253,7 +271,7 @@ What went wrong:
 
 ## **Not verified**
 
-- **The agent beyond one alert.** Three live runs of `IcebergCompactionOverdue` on kind, and six eval runs of three recorded scenarios; the last passed its gate, once ([**Eval runs**](#eval-runs-2026-11-25-the-gate-passed-on-the-sixth-run)); three scenarios have no fixture yet.
+- **The agent beyond one alert.** Three live runs of `IcebergCompactionOverdue` on kind, and six eval runs of three recorded scenarios; the last full one passed its gate, once ([**Eval runs**](#eval-runs-2026-11-25-the-gate-passed-on-the-sixth-run)); `resolved-staleness` passed 3/3 on its own; two scenarios have no fixture yet, and one live investigation ended without a diagnosis ([**Live staleness investigation**](#live-staleness-investigation-2026-11-25)).
 - **The refusal fallback.** Opus 5.5 is not available to the account (403 "not available for this account"), so a refusal ends without a diagnosis.
 - **The agent on AWS.** The IRSA and AgentCore Runtime policies now allow InvokeModel through the profiles ([**ADR 0014**](architecture-decisions/0014-claude-through-invoke-model.md)); no AWS run has used them yet.
 - **Whether the role is limited to the two models.** Only Sonnet 4.6 is available to the account, so a call to another model fails on the agreement before IAM would matter.

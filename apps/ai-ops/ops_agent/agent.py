@@ -11,7 +11,7 @@ from prometheus_client import Counter, Histogram
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai import ModelRetry, NativeOutput, RunContext, UsageLimits, capture_run_messages
 from pydantic_ai.exceptions import ContentFilterError, ToolFailed, UnexpectedModelBehavior, UsageLimitExceeded
-from pydantic_ai.messages import ModelResponse, ThinkingPart
+from pydantic_ai.messages import ModelRequest, ModelResponse, RetryPromptPart, ThinkingPart
 from pydantic_ai.models import Model
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset
@@ -62,6 +62,7 @@ class Investigation:
     models_used: list[str] = field(default_factory=list)
     unsupported_evidence: list[str] = field(default_factory=list)
     reasoning_summaries: list[str] = field(default_factory=list)
+    output_retries: list[str] = field(default_factory=list)    # why each answer was sent back
     trace_id: str = ""           # the Langfuse trace, when tracing is on
     error: str = ""
 
@@ -172,7 +173,9 @@ class Agent:
         except UsageLimitExceeded as e:
             inv.outcome, inv.error = "budget_exhausted", str(e)[:1000]
         except UnexpectedModelBehavior as e:
-            inv.outcome, inv.error = "invalid_output", str(e)[:1000]
+            # The cause is why the last answer was rejected; the message alone only says the retries ran out.
+            cause = f": {type(e.__cause__).__name__}: {e.__cause__}" if e.__cause__ else ""
+            inv.outcome, inv.error = "invalid_output", f"{e}{cause}"[:1000]
         except Exception as e:      # noqa: BLE001 - every failure becomes a recorded outcome
             inv.outcome, inv.error = "error", f"{type(e).__name__}: {e}"[:1000]
         inv.finished_at = time.time()
@@ -188,7 +191,9 @@ class Agent:
             instructions=SYSTEM_PROMPT,
             toolsets=[toolset],
             model_settings=model_settings(cfg),
-            retries=1,          # one retry for output that fails validation (tool retries are off per tool)
+            # Two retries for output that fails validation (tool retries are off per tool). Seen live with one: an early
+            # answer was sent back, then the investigated answer failed too and the run ended without a diagnosis.
+            retries=2,
         )
         agent.instrument = self.tracer is not None
 
@@ -212,6 +217,9 @@ class Agent:
 
     def _account(self, inv: Investigation, messages: list[Any]) -> None:
         for m in messages:
+            if isinstance(m, ModelRequest):
+                inv.output_retries += [p.model_response()[:500] for p in m.parts
+                                       if isinstance(p, RetryPromptPart) and p.tool_name is None]
             if not isinstance(m, ModelResponse):
                 continue
             inv.turns += 1

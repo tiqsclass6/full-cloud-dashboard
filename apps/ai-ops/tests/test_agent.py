@@ -89,12 +89,26 @@ async def test_refusal_is_recorded_not_parsed():
 
 
 @pytest.mark.anyio
-async def test_invalid_output_is_retried_once_then_rejected():
-    model, calls = scripted([TextPart('{"summary": "x"}')], [TextPart('{"still": "wrong"}')])
+async def test_invalid_output_is_retried_twice_then_rejected():
+    model, calls = scripted(*[[TextPart('{"summary": "x"}')]] * 3)
     inv = await Agent(AgentConfig(), model, FakeBackend()).investigate(TRIGGER)
     assert inv.outcome == "invalid_output" and inv.diagnosis is None
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert any(isinstance(p, RetryPromptPart) for p in calls[1][0][-1].parts)
+    # Every send-back and the final cause are recorded, so a failed run says why.
+    assert len(inv.output_retries) == 2 and "validation" in inv.output_retries[0].lower()
+    assert "ValidationError" in inv.error or "validation" in inv.error.lower()
+
+
+@pytest.mark.anyio
+async def test_an_early_answer_does_not_use_up_the_retry_for_the_real_one():
+    # Seen live (IcebergTableStale on kind): an answer before any tool call, then a full investigation whose
+    # answer also failed validation; with one retry the run ended as invalid_output.
+    model, _ = scripted(answer(), [ToolCallPart("get_kafka_status", {}, "a")], [TextPart('{"summary": "x"}')],
+                        answer())
+    inv = await Agent(AgentConfig(), model, FakeBackend()).investigate(TRIGGER)
+    assert inv.outcome == "diagnosed" and len(inv.output_retries) == 2
+    assert "investigate with the tools first" in inv.output_retries[0].lower()
 
 
 @pytest.mark.anyio
@@ -116,7 +130,7 @@ async def test_evidence_naming_a_tool_with_arguments_is_sent_back():
 
 @pytest.mark.anyio
 async def test_a_diagnosis_without_investigating_is_not_accepted():
-    model, _ = scripted(answer(), answer())
+    model, _ = scripted(answer(), answer(), answer())
     inv = await Agent(AgentConfig(), model, FakeBackend()).investigate(TRIGGER)
     assert inv.outcome == "invalid_output" and inv.diagnosis is None
 

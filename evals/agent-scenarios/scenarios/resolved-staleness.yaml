@@ -1,5 +1,5 @@
 name: resolved-staleness
-description: IcebergTableStale was delivered, but by the time of the investigation the table commits every 10 seconds again (a short Flink restart). Nothing is wrong now.
+description: IcebergTableStale was delivered, but by the time of the investigation the Flink job runs and commits again (it was suspended for about ten minutes; no ingestion load, so the commits add no rows). Nothing is wrong now.
 alert: alerts/resolved-staleness.json
 fixture: fixtures/resolved-staleness.json
 expect:

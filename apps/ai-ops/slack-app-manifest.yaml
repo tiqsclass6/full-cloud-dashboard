@@ -14,9 +14,9 @@ oauth_config:
       - channels:history      # re-read a posted message to remove its buttons after a decision
       - groups:history        # the same, when the channel is private
 settings:
-  # Socket Mode: ops-control opens an outbound WebSocket; Slack never calls into the cluster.
   socket_mode_enabled: true
   interactivity:
     is_enabled: true
   org_deploy_enabled: false
   token_rotation_enabled: false
+  app_level_token_rotation_enabled: false

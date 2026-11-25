@@ -135,5 +135,15 @@ OUTCOME="$(psql_q "select outcome || coalesce(' (' || nullif(left(error, 120), '
 [ "$(psql_q "select count(*) from ops.investigations where model <> 'test'")" -gt "${BEFORE}" ] \
   && ok "investigation recorded: ${OUTCOME}" || fail "no investigation recorded within 5 minutes"
 
+log "7. Slack (clicking the buttons is a manual check: docs/ai-ops.md#slack)"
+if kc -n "${NS}" get secret ops-slack >/dev/null 2>&1; then
+  kc -n "${NS}" logs deploy/ops-control | grep -q 'slack socket mode connected' \
+    && ok "Socket Mode connected" || fail "ops-control has no Socket Mode connection"
+  [ "$(psql_q "select slack_ts is not null from ops.proposals where id = '${PID}'")" = "t" ] \
+    && ok "test proposal posted to Slack" || fail "test proposal not posted to Slack"
+else
+  ok "no ops-slack secret: approvals through the CLI only"
+fi
+
 echo
 [ "${FAILED}" -eq 0 ] && printf '\033[1;32mAll ops agent guardrail checks passed.\033[0m\n' || { printf '\033[1;31mOps agent checks failed.\033[0m\n'; exit 1; }

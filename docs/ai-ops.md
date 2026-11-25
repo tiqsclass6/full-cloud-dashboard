@@ -118,8 +118,8 @@ Approvals from a terminal: [**runbooks/ai-ops.md**](runbooks/ai-ops.md#approving
 ### **Slack**
 
 1. At <https://api.slack.com/apps>: Create New App, From a manifest, paste `apps/ai-ops/slack-app-manifest.yaml`, install it to your workspace.
-2. Create an app-level token with the `connections:write` scope (Basic Information, App-Level Tokens).
-3. Invite the bot to a channel (`/invite @lakehouse-ops`).
+2. Create an app-level token with the `connections:write` scope (Basic Information, App-Level Tokens). Leave **Token rotation** off; the manifest sets it off. Rotating tokens (`xoxe.xapp-...`) expire after 12 hours, ops-control does not refresh them, and Slack cannot turn rotation off again. If it was turned on, delete the app and create it again.
+3. Invite the bot to a channel (`/invite @lakehouse-ops`); a private channel works.
 4. Write `local/secrets/slack.env` (git-ignored), never paste tokens anywhere else:
 
    ```text
@@ -129,7 +129,9 @@ Approvals from a terminal: [**runbooks/ai-ops.md**](runbooks/ai-ops.md#approving
    APPROVERS=U0123456789
    ```
 
-5. `make ai-deploy` creates the Secret and restarts ops-control.
+5. `make ai-deploy` creates the Secret and restarts ops-control (`bash local/scripts/deploy-ai-ops.sh --secrets-only` and a restart of `deploy/ops-control` when the images are current). Its log shows `slack socket mode connected`.
+
+`make ai-ops-test` then checks the connection and that its test proposal was posted, and it posts to the channel: a proposal it approves from the CLI (the buttons disappear) and a webhook investigation. Clicking the buttons stays a manual check: [**Slack approvals on kind**](#slack-approvals-on-kind-2026-11-25).
 
 ## **Evals**
 
@@ -187,11 +189,28 @@ What the AWS run found and fixed:
 - **EKS recreated its log group after the teardown:** `/aws/eks/lakehouse-dev/cluster` (no retention, empty) was back after `terraform destroy`, and the next `aws-apply` failed with `ResourceAlreadyExistsException`. Terraform cannot remove it, because EKS recreates it after Terraform has deleted the one it manages. `aws-down.sh` now deletes this environment's EKS and AgentCore Runtime log groups once the cluster is gone, and its leftover check reports any that remain. Not yet exercised by a full teardown.
 - **The teardown left Loki's and Tempo's volumes** (20 GiB each): `aws-down.sh` did not delete the `observability` namespace, added in Phase 8, which had only run on kind. Fixed; the two volumes were deleted by hand.
 
+## **Slack approvals on kind (2026-11-25)**
+
+A single run against a real Slack app (Socket Mode, a private channel, one approver), with synthetic investigations sent to ops-control. Each one proposed `restart_pod` for the iceberg-exporter pod; the model was not involved.
+
+| **Check**                | **Result**                                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Socket Mode**          | Connected from ops-control on kind through the namespace's HTTPS egress policy                                                             |
+| **Approve, then Run it** | Pod deleted and recreated; proposal `succeeded`, decided by the Slack user; audit `proposal_created,approval,approved,execution_succeeded` |
+| **Reject**               | Pod untouched; proposal `rejected`; audit `proposal_created,rejected`                                                                      |
+| **Both again, new app**  | Same results after the app was created again without token rotation (below)                                                                |
+| **`make ai-ops-test`**   | 39 of 39, including the two new Slack checks; no Slack errors in the ops-control log                                                       |
+
+What went wrong:
+
+- **The first app had token rotation on for its app-level token.** Its token expires 12 hours after it is issued, and Slack cannot turn rotation off again. ops-control would have lost the connection at Slack's next reconnect, while its messages kept posting with the bot token, so the buttons would have done nothing. The app was deleted and created again, and the manifest now sets `app_level_token_rotation_enabled: false`.
+- **The first token was rejected** (`invalid_auth` from `apps.connections.open`): it was a rotating token copied without its `xoxe.` prefix. The checks of the token's shape printed only lengths and prefixes, never the value.
+
 ## **Not verified**
 
 - **Anything the model does.** The account has no access to the Claude models in Amazon Bedrock (`agreementAvailability: NOT_AVAILABLE`, even for models open to all accounts), so no diagnosis has been produced and the eval suite has no results yet. Every piece around the model is verified; enabling access is an account step in the Bedrock console.
 - **Whether the role is limited to the two models.** With access blocked, every model returns the same error, so the model-scoped IAM policy could not be tested.
 - **The tightened AgentCore and Hermes policies (2026-11-14) on AWS.** The Gateway's API-key scope, the Runtime's `kms:ViaService` condition, the Runtime's log-group scope and the inference-profile-only condition follow AWS's documented ARNs and condition keys and pass IAM Access Analyzer, but no AWS run has used them yet. The next run's Gateway creation, target setup, Runtime selftest and Hermes's tool list exercise them; an AccessDenied there points to one of these statements. The Gateway's `kms:ViaService` condition was tried on 2026-11-24 and removed: AgentCore calls KMS itself with the role, so the condition never matches ([**aws.md**](aws.md#fourth-run-2026-11-24-dev-data-integrity-on-eks)); the Gateway was then created, but no target was set up.
 - **The kind role's policy had drifted from the code.** The 2026-11-02 model switch to Sonnet 4.6 was never applied to `terraform/bootstrap`, so until 2026-11-14 the role allowed Sonnet 5.5 instead of the model the agent uses. Applied on 2026-11-14 (one policy updated in place; a re-plan shows no changes). With model access blocked, no call has used it yet.
-- **Slack.** The approval flow is tested through the CLI; the Slack app is not set up.
+- **Slack beyond one approver on kind.** A click by someone not on the approver list, two-person approval, a proposal expiring in Slack, Slack's periodic reconnects over hours, and Slack on AWS (`aws-ai-secrets.sh` creates the same Secret from `local/secrets/slack.env`) are covered by unit tests or not at all. The diagnosis text in the messages came from synthetic investigations, not the model.
 - **Langfuse on AWS.** It runs on kind only; on AWS the agent runs untraced.

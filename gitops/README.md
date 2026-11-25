@@ -87,13 +87,15 @@ On an empty cluster Argo CD created everything in the platform chart at once. Th
 
 | **Wave** | **Resources**                                                                |
 | -------- | ---------------------------------------------------------------------------- |
-| **-4**   | namespaces                                                                   |
+| **-4**   | namespaces, Kyverno policies (healthy once Kyverno enforces them)            |
 | **-3**   | secrets, Postgres, SeaweedFS                                                 |
 | **-2**   | Iceberg REST catalog, toolbox                                                |
 | **-1**   | bucket creation (now an Argo CD `Sync`-phase hook, so it runs in wave order) |
 | **0**    | everything else (Kafka, registry, ingestion, Flink, Spark schedules)         |
 
 Argo CD waits for each wave to be healthy before starting the next. The smoke test also gained two Flink checks (job RUNNING, checkpoints completing), because Argo CD's health for the FlinkDeployment did not flag the crash loop. On the second from-scratch run the JobManager started once, with no restarts.
+
+**Kyverno policies (added 2026-11-25).** On the fifth AWS run the platform synced before Kyverno was installed: the Deployments came first, the policies 18 minutes later. Kyverno then pinned image digests into the Deployment templates and started a second rollout, which stuck on full nodes ([**aws.md**](../docs/aws.md#what-the-run-found-here-fifth-run)). The policies are now in wave -4. A missing Kyverno CRD fails that wave, so Argo CD retries the sync and creates no workload until Kyverno is installed. A health check in `gitops/bootstrap/argocd-values.yaml` keeps each policy `Progressing` until Kyverno reports it ready (webhook configured), so the next wave also waits for enforcement.
 
 ### **Not verified yet**
 - **The AWS overlays:** rendered and validated only, never deployed (Phase 6).

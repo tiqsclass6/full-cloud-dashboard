@@ -12,6 +12,8 @@ metadata:
   labels:
     {{- include "lakehouse.labels" $ctx | nindent 4 }}
   annotations:
+    # With the namespaces, before any workload: Kyverno must enforce (and pin digests) from the first pod.
+    argocd.argoproj.io/sync-wave: "-4"
     policies.kyverno.io/title: "Limit the Spark runs the ops agent's executor may start"
     policies.kyverno.io/description: "A SparkApplication created by ops-control must run the platform's spark-jobs image and job files under the Spark job service account, with no other identity, pod template service account, extra dependencies or Kubernetes auth settings."
 spec:

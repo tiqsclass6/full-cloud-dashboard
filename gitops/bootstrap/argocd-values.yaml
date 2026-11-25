@@ -9,6 +9,21 @@ configs:
   cm:
     timeout.reconciliation: 60s            # poll Git every minute (no webhooks from in-cluster Gitea)
     admin.enabled: true
+    # Kyverno policies are healthy once Kyverno enforces them, so the next sync wave starts only then.
+    resource.customizations.health.policies.kyverno.io_ValidatingPolicy: &kyvernoPolicyHealth |
+      hs = {status = "Progressing", message = "Waiting for Kyverno to enforce the policy"}
+      local cs = obj.status and obj.status.conditionStatus
+      if cs and cs.ready == true then
+        hs.status = "Healthy"
+        hs.message = "Kyverno enforces the policy"
+      elseif cs and cs.conditions then
+        for _, c in ipairs(cs.conditions) do
+          if c.status ~= "True" then hs.message = c.type .. ": " .. (c.message or "not ready") end
+        end
+      end
+      return hs
+    resource.customizations.health.policies.kyverno.io_ImageValidatingPolicy: *kyvernoPolicyHealth
+    resource.customizations.health.policies.kyverno.io_GeneratingPolicy: *kyvernoPolicyHealth
 
 dex:
   enabled: false

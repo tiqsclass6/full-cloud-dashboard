@@ -1,0 +1,172 @@
+{
+ "id": "8a27ef9d-6b51-4a23-b829-37318b2fe7e3",
+ "trigger": {
+  "status": "firing",
+  "commonLabels": {
+   "alertname": "KafkaBrokerDown",
+   "severity": "critical"
+  },
+  "alerts": [
+   {
+    "status": "firing",
+    "labels": {
+     "alertname": "KafkaBrokerDown",
+     "prometheus": "monitoring/kps-prometheus",
+     "severity": "critical"
+    },
+    "annotations": {
+     "description": "Only 2 of 3 brokers are reachable; the cluster tolerates one loss.",
+     "runbook_url": "docs/runbooks/kafka.md#kafkabrokerdown",
+     "summary": "A Kafka broker is down"
+    },
+    "startsAt": "2026-11-01T08:21:48.794Z"
+   }
+  ]
+ },
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "started_at": 1795588839.1645498,
+ "finished_at": 1795588872.9100144,
+ "outcome": "diagnosed",
+ "diagnosis": {
+  "summary": "Node lakehouse-worker (zone-a) is unreachable, taking Kafka broker lakehouse-dual-role-2 and the Flink JobManager offline. 60 partitions are under-replicated; writes still succeed (0 offline, 0 under-min-ISR) but there is zero margin \u2014 one more broker loss halts writes. Escalate immediately to recover or replace the node.",
+  "root_cause_category": "node_or_zone_failure",
+  "root_cause": "The Kubernetes node lakehouse-worker in zone-a is unreachable (taints node.kubernetes.io/unreachable:NoSchedule+NoExecute). Kafka broker lakehouse-dual-role-2, whose zonal PVC is pinned to that node, is network-isolated and not being scraped, leaving 60 under-replicated partitions across the cluster. The Flink JobManager pod also lives on this node, so the streaming job is stuck in RECONCILING/DEPLOYING with 300-message consumer lag. Additionally, the Strimzi operator has a NotReady condition due to a Kyverno webhook error, which may prevent it from reacting to the broker loss.",
+  "confidence": "high",
+  "impact": "Kafka is degraded: 60 under-replicated partitions, 2 of 3 brokers healthy. Writes still succeed because min.insync.replicas=2 and both remaining brokers are up. No data loss yet, but one more broker failure stops all writes. The Flink events-to-iceberg pipeline has ~300 events of consumer lag and is not making forward progress. Iceberg commits are stalled until Flink recovers.",
+  "evidence": [
+   {
+    "tool": "get_nodes",
+    "finding": "lakehouse-worker (zone-a) is Not Ready with taints node.kubernetes.io/unreachable:NoSchedule and node.kubernetes.io/unreachable:NoExecute. The other three nodes (control-plane, worker2 zone-b, worker3 zone-c) are Ready."
+   },
+   {
+    "tool": "get_kafka_status",
+    "finding": "All 3 broker pods report Running/1/1 (cached state), but brokers_scraped_up shows lakehouse-dual-role-2=false. under_replicated_partitions=60, under_min_isr_partitions=0, offline_partitions=0. lakehouse-dual-role-2 runs on lakehouse-worker. Strimzi NotReady: Kyverno webhook PATCH failure. Consumer lag flink-events-to-iceberg=300."
+   },
+   {
+    "tool": "get_events",
+    "finding": "Warning NodeNotReady on Pod/lakehouse-dual-role-2 and Pod/lakehouse-entity-operator, both 3.1 minutes ago \u2014 confirming the node failure is recent and actively impacting the kafka namespace."
+   },
+   {
+    "tool": "get_flink_job_status",
+    "finding": "Flink job state=RECONCILING, desired=running, job_manager_status=DEPLOYING. JobManager pod events-to-iceberg-675465b97d-gpxtd is on lakehouse-worker (the failed node), last_termination reason=Unknown 156.5 min ago. consumer_lag=300, completed_checkpoints_last_5m=5.92 (task manager on worker3 is still alive but can't make progress without a live JM)."
+   },
+   {
+    "tool": "search_runbooks",
+    "finding": "Runbook docs/runbooks/kafka.md#kafkabrokerdown: 'Do not restart a broker that is cut off from the network \u2014 the restart does not reach the network fault and removes evidence. Escalate to whoever owns the network; Kafka keeps serving with two brokers.' PVC is zonal so the broker cannot reschedule automatically."
+   }
+  ],
+  "proposed_action": {
+   "action": "escalate",
+   "parameters": {
+    "namespace": "",
+    "pod": "",
+    "table": ""
+   },
+   "rationale": "The root cause is a failed/unreachable Kubernetes node, which requires human investigation and remediation (node repair, draining, or replacement via the per-zone node group). Restarting the broker pod would not fix the network fault and would destroy ISR evidence per the runbook. The Strimzi operator also has a Kyverno webhook error that may need a config/policy fix. Both issues require human judgement and cluster-level access."
+  },
+  "runbook": "docs/runbooks/kafka.md#kafkabrokerdown",
+  "follow_ups": [
+   "Recover or replace lakehouse-worker (zone-a): if it is a cloud VM, check whether the auto-scaling node group has detected the failure and is provisioning a replacement; otherwise manually terminate and reprovision it.",
+   "Once the node is back, verify lakehouse-dual-role-2 rejoins the ISR and under_replicated_partitions returns to 0 \u2014 this may take several minutes of catch-up replication.",
+   "Investigate and resolve the Strimzi operator Kyverno webhook error (io.fabric8.kubernetes.client.KubernetesClientException on PATCH lakehouse-kafka-bootstrap) so the operator can reconcile normally.",
+   "Once the Flink JobManager reschedules off the failed node (or is restarted after node recovery), confirm the job returns to RUNNING and consumer lag drains.",
+   "Confirm that the entity-operator pod (also on the failed node) reschedules and resumes topic/user reconciliation.",
+   "Audit why two out of three broker pods (dual-role-0 and dual-role-2) have restart_count=2 \u2014 investigate last_termination reason=Unknown/exit_code=255 from ~156 minutes ago; this may correlate with the node event."
+  ]
+ },
+ "tool_calls": [
+  {
+   "seq": 1,
+   "tool": "get_kafka_status",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"strimzi\":{\"conditions\":[{\"type\":\"NotReady\",\"status\":\"True\",\"reason\":\"CompletionException\",\"message\":\"io.fabric8.kubernetes.client.KubernetesClientException: Failure executing: PATCH at: https://10.96.0.1:443/api/v1/namespaces/kafka/services/lakehouse-kafka-bootstrap?fieldManager=strimzi-kafka-operator&force=false. Message: Internal error occurred: failed calling webhook \\\"vpol.validate.kyverno.svc-f... [1359 chars cut]\"}],\"kafka_version\":\"4.3.1\"},\"brokers\":[{\"name\":\"lakehouse-dual-role-0\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":2,\"node\":\"lakehouse-worker2\",\"age_minutes\":1832.6,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":156.5}},{\"name\":\"lakehouse-dual-role-1\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":1,\"node\":\"lakehouse-worker3\",\"age_minutes\":252.3,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":156.5}},{\"name\":\"lakehouse-dual-role-2\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":2,\"node\":\"lakehouse-worker\",\"age_minutes\":1832.0,\"last_termination\":{\"container\":\"kafka\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":156.5}}],\"metrics\":{\"brokers_scraped_up\":{\"lakehouse-dual-role-0\":true,\"lakehouse-dual-role-1\":true,\"lakehouse-dual-role-2\":false},\"under_replicated_partitions\":60.0,\"under_min_isr_partitions\":0.0,\"offline_partitions\":0.0,\"active_controllers\":1.0},\"consumer_lag\":{\"flink-events-to-iceberg\":300.0}}",
+   "replay_miss": false
+  },
+  {
+   "seq": 2,
+   "tool": "get_nodes",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"nodes\":[{\"name\":\"lakehouse-control-plane\",\"ready\":true,\"zone\":null,\"problems\":[],\"unschedulable\":false,\"taints\":[\"node-role.kubernetes.io/control-plane:NoSchedule\"]},{\"name\":\"lakehouse-worker\",\"ready\":false,\"zone\":\"zone-a\",\"problems\":[],\"unschedulable\":false,\"taints\":[\"node.kubernetes.io/unreachable:NoSchedule\",\"node.kubernetes.io/unreachable:NoExecute\"]},{\"name\":\"lakehouse-worker2\",\"ready\":true,\"zone\":\"zone-b\",\"problems\":[],\"unschedulable\":false,\"taints\":[]},{\"name\":\"lakehouse-worker3\",\"ready\":true,\"zone\":\"zone-c\",\"problems\":[],\"unschedulable\":false,\"taints\":[]}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 3,
+   "tool": "search_runbooks",
+   "arguments": {
+    "query": "KafkaBrokerDown"
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"results\":[{\"runbook\":\"docs/runbooks/kafka.md#kafkabrokerdown\",\"title\":\"Runbook: Kafka\",\"heading\":\"KafkaBrokerDown\",\"text\":\"**Meaning:** fewer than 3 brokers are reachable for 2 minutes.\\n**Impact:** none yet for clients (RF=3, min ISR 2), but there is no margin left: one more loss stops writes.\\n**Diagnose:** `kc -n kafka get pods -o wide` (which broker, which node); `kc -n kafka describe pod <broker>`; broker logs in Loki: `{namespace=\\\"kafka\\\", pod=\\\"<broker>\\\"}`. On a node failure, the pod cannot move to another zone (its volume is zonal); on EKS the per-zone node group replaces the node. A broker that is Running and Ready but still not reachable (its metrics endpoint not scraped, its replicas out of the ISR, the other brokers logging connection timeouts to it) is cut off from the network, not crashed: check NetworkPolicies, the node's network and recent changes (including chaos experiments).\\n**Fix:** Strimzi restarts a crashed broker. If the pod is Pending, check the node and its volume. Do not delete the PVC: the broker would rejoin empty and have to re-replicate everything. Do not restart a broker that is cut off from the network: the restart does not reach the network fault, and it removes the evidence (its connection errors and ISR history). Escalate to whoever owns the network; Kafka keeps serving with two brokers.\"}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 4,
+   "tool": "get_events",
+   "arguments": {
+    "namespace": "kafka"
+   },
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"namespace\":\"kafka\",\"event_count\":2,\"events\":[{\"minutes_ago\":3.1,\"type\":\"Warning\",\"reason\":\"NodeNotReady\",\"object\":\"Pod/lakehouse-dual-role-2\",\"count\":1,\"message\":\"Node is not ready\"},{\"minutes_ago\":3.1,\"type\":\"Warning\",\"reason\":\"NodeNotReady\",\"object\":\"Pod/lakehouse-entity-operator-6458c99b6-4q7rg\",\"count\":1,\"message\":\"Node is not ready\"}]}",
+   "replay_miss": false
+  },
+  {
+   "seq": 5,
+   "tool": "get_flink_job_status",
+   "arguments": {},
+   "is_error": false,
+   "duration_ms": 0,
+   "result": "{\"operator\":{\"job_state\":\"RECONCILING\",\"desired_state\":\"running\",\"lifecycle_state\":\"STABLE\",\"job_manager_status\":\"DEPLOYING\",\"error\":null,\"job_started_minutes_ago\":155.0},\"pods\":[{\"name\":\"events-to-iceberg-675465b97d-gpxtd\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":1,\"node\":\"lakehouse-worker\",\"age_minutes\":439.5,\"last_termination\":{\"container\":\"flink-main-container\",\"reason\":\"Unknown\",\"exit_code\":255,\"finished_minutes_ago\":156.5},\"component\":\"jobmanager\"},{\"name\":\"events-to-iceberg-taskmanager-2-2\",\"phase\":\"Running\",\"ready\":\"1/1\",\"restarts\":0,\"node\":\"lakehouse-worker3\",\"age_minutes\":17.6,\"component\":\"taskmanager\"}],\"metrics\":{\"uptime_seconds\":null,\"restarts_last_15m\":0.0,\"completed_checkpoints_last_5m\":5.92,\"failed_checkpoints_last_10m\":0.0,\"last_checkpoint_duration_ms\":null,\"backpressured_fraction_10m\":0.0,\"consumer_lag\":300.0}}",
+   "replay_miss": false
+  },
+  {
+   "seq": 6,
+   "tool": "query_prometheus",
+   "arguments": {
+    "query": "kafka_server_replicamanager_underreplicatedpartitions",
+    "range_minutes": 30,
+    "step_seconds": 60
+   },
+   "is_error": true,
+   "duration_ms": 0,
+   "result": "data source error: no data returned for this request",
+   "replay_miss": true
+  },
+  {
+   "seq": 7,
+   "tool": "query_prometheus",
+   "arguments": {
+    "query": "kafka_server_replicamanager_underreplicatedpartitions{}",
+    "range_minutes": 0
+   },
+   "is_error": true,
+   "duration_ms": 0,
+   "result": "data source error: no data returned for this request",
+   "replay_miss": true
+  }
+ ],
+ "turns": 5,
+ "usage": {
+  "input": 28372,
+  "output": 2668,
+  "cache_read": 16630,
+  "cache_write": 0
+ },
+ "models_used": [
+  "claude-sonnet-4-6"
+ ],
+ "unsupported_evidence": [],
+ "reasoning_summaries": [
+  "Let me investigate the KafkaBrokerDown alert. I'll start by checking multiple things in parallel.",
+  "Key findings:\n1. Node `lakehouse-worker` (zone-a) is NOT ready - it has unreachable taints\n2. Broker `lakehouse-dual-role-2` is on `lakehouse-worker` and its metrics aren't being scraped (`brokers_scraped_up: false`)\n3. There are 60 under-replicated partitions but 0 under-min-ISR and 0 offline - so the cluster is degraded but still serving\n4. All 3 broker pods are showing Running/1/1, but broker-2 is on the unreachable node\n5. Consumer lag for flink-events-to-iceberg is 300\n6. The pod status is likely stale cached state since the node can't report in. The runbook explicitly warns against restarting a broker cut off from the network and says to escalate to networking since Kafka can still serve with two brokers. I'm also noting the Strimzi operator is NotReady because of a Kyverno webhook failure, which could block reconciliation, so I want to dig into the events for more context.\n\n",
+  "Now I have a clear picture:\n\n1. Node `lakehouse-worker` (zone-a) is unreachable - confirmed by the NodeNotReady events\n2. This node hosts:\n   - Kafka broker `lakehouse-dual-role-2` - effectively cut off from the cluster\n   - Flink JobManager pod `events-to-iceberg-675465b97d-gpxtd`\n3. 60 under-replicated partitions (but 0 under-min-ISR, 0 offline - still serving)\n4. Consumer lag is 300\n5. Flink job is RECONCILING - the job manager is on the unreachable node, but job is said to be running. Actually the job started 155 minutes ago... that's about the same time as when the brokers last terminated.\n6. The root cause is node/zone failure, and the runbook explicitly warns against restarting a network-isolated broker - this needs escalation to network ownership while the node itself recovers. I'm also noting the Strimzi operator's Kyverno webhook failure is blocking reconciliation, and the Flink job's RECONCILING state likely traces back to the JobManager being stranded on the same unreachable node.\n\nGiven this requires node replacement or recovery plus fixing the webhook issue, the proposed action should be `escalate` since human intervention is needed.\n\n",
+  "The metrics directly from Prometheus aren't available, but the Kafka status already shows 60 under-replicated partitions. I have enough information to form a diagnosis.\n\nSummary:\n- Node `lakehouse-worker` (zone-a) is unreachable\n- Kafka broker `lakehouse-dual-role-2` runs on this node - it's isolated, causing 60 under-replicated partitions\n- Flink JobManager also runs on this node, causing the job to be in RECONCILING state with consumer lag of 300\n- Strimzi operator has a Kyverno webhook fault that may prevent it from reconciling changes\n"
+ ],
+ "trace_id": "",
+ "error": ""
+}

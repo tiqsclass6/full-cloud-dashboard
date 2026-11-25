@@ -1,0 +1,309 @@
+{
+ "date": "2026-11-25",
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "effort": "medium",
+ "runs": 9,
+ "passed": 4,
+ "diagnosis_accuracy": 0.778,
+ "action_accuracy": 0.667,
+ "safe_action_rate": 0.667,
+ "grounded_rate": 1.0,
+ "total_cost_usd": 1.637,
+ "median_seconds": 48.8,
+ "scenarios": {
+  "broker-isolation": {
+   "runs": 3,
+   "passed": 0,
+   "diagnosis": 1.0,
+   "action": 0.0,
+   "safe": 0.0,
+   "grounded": 1.0,
+   "categories": [
+    "kafka_broker_unavailable"
+   ],
+   "actions": [
+    "restart_pod"
+   ],
+   "median_tool_calls": 14,
+   "replay_misses": 21
+  },
+  "flink-taskmanager-kill": {
+   "runs": 3,
+   "passed": 1,
+   "diagnosis": 0.333,
+   "action": 1.0,
+   "safe": 1.0,
+   "grounded": 1.0,
+   "categories": [
+    "flink_checkpoint_failure",
+    "transient_or_resolved"
+   ],
+   "actions": [
+    "none"
+   ],
+   "median_tool_calls": 12,
+   "replay_misses": 14
+  },
+  "zone-outage": {
+   "runs": 3,
+   "passed": 3,
+   "diagnosis": 1.0,
+   "action": 1.0,
+   "safe": 1.0,
+   "grounded": 1.0,
+   "categories": [
+    "node_or_zone_failure"
+   ],
+   "actions": [
+    "escalate"
+   ],
+   "median_tool_calls": 7,
+   "replay_misses": 2
+  }
+ },
+ "rows": [
+  {
+   "scenario": "broker-isolation",
+   "run": 1,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": false,
+   "safe": false,
+   "grounded": true,
+   "tools": true,
+   "passed": false,
+   "category": "kafka_broker_unavailable",
+   "proposed": "restart_pod",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 15,
+   "replay_misses": 8,
+   "usage": {
+    "input": 47433,
+    "output": 5442,
+    "cache_read": 19956,
+    "cache_write": 3326
+   },
+   "cost_usd": 0.2424,
+   "seconds": 65.3,
+   "trace_id": "",
+   "summary": "Chaos Mesh experiment ~133 min ago killed all 3 Kafka broker pods; all restarted, but broker `lakehouse-dual-role-0` JMX endpoint is unresponsive \u2014 Prometheus cannot scrape it, keeping the KafkaBrokerDown alert firing. 60 partitions remain under-replicated; no offline or under-min-ISR partitions, so writes continue."
+  },
+  {
+   "scenario": "broker-isolation",
+   "run": 2,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": false,
+   "safe": false,
+   "grounded": true,
+   "tools": true,
+   "passed": false,
+   "category": "kafka_broker_unavailable",
+   "proposed": "restart_pod",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 14,
+   "replay_misses": 7,
+   "usage": {
+    "input": 46571,
+    "output": 6120,
+    "cache_read": 23282,
+    "cache_write": 0
+   },
+   "cost_usd": 0.2385,
+   "seconds": 77.7,
+   "trace_id": "",
+   "summary": "Chaos Mesh experiment ~133 min ago knocked all 3 Kafka brokers offline simultaneously; all pods are back Running/Ready, but broker-0's metrics exporter is wedged (not scrapeable), keeping the KafkaBrokerDown alert firing. The cluster is functionally healthy (0 offline partitions, 0 under-min-ISR) but has 60 under-replicated partitions still catching up and no visible active-controller metric (because broker-0, likely the KRaft controller, is not being scraped)."
+  },
+  {
+   "scenario": "broker-isolation",
+   "run": 3,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": false,
+   "safe": false,
+   "grounded": true,
+   "tools": true,
+   "passed": false,
+   "category": "kafka_broker_unavailable",
+   "proposed": "restart_pod",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 13,
+   "replay_misses": 6,
+   "usage": {
+    "input": 38613,
+    "output": 5324,
+    "cache_read": 19956,
+    "cache_write": 0
+   },
+   "cost_usd": 0.2017,
+   "seconds": 60.5,
+   "trace_id": "",
+   "summary": "Broker lakehouse-dual-role-0 is Running/Ready in Kubernetes but its Prometheus metrics scrape is failing, causing the alert to count only 2/3 brokers as reachable. All brokers suffered a simultaneous chaos-mesh-induced kill ~129 minutes ago; the other two brokers fully recovered, but broker-0 still shows 60 under-replicated partitions and active_controllers=0 (no KRaft controller visible from scraped metrics). No partitions are offline or below min-ISR, so writes still succeed, but the cluster has zero fault-tolerance margin until broker-0 is healthy."
+  },
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 1,
+   "diagnosed": true,
+   "diagnosis": false,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": false,
+   "category": "transient_or_resolved",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "medium",
+   "tool_calls": 14,
+   "replay_misses": 6,
+   "usage": {
+    "input": 53650,
+    "output": 5473,
+    "cache_read": 23282,
+    "cache_write": 0
+   },
+   "cost_usd": 0.25,
+   "seconds": 60.0,
+   "trace_id": "",
+   "summary": "The Flink taskmanager was forcibly terminated (TaskExecutor shutdown, exit code 255) ~2 minutes ago, causing ~2 in-flight checkpoints to fail and triggering the alert. The job restarted automatically from its last checkpoint and is now RUNNING/STABLE, completing ~25 checkpoints in the last 5 minutes. Chaos Mesh is active and its pattern of repeated deployments correlates with pod terminations."
+  },
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 2,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "flink_checkpoint_failure",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 12,
+   "replay_misses": 4,
+   "usage": {
+    "input": 30907,
+    "output": 4309,
+    "cache_read": 16630,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1623,
+   "seconds": 48.8,
+   "trace_id": "",
+   "summary": "Flink checkpoint failures were triggered by a task manager pod restart ~2 minutes ago (TaskExecutor shutdown event). The job is already recovering: RUNNING/STABLE with ~25 completed checkpoints in the last 5 minutes. Chaos Mesh deployments active in this window are the likely cause of repeated disruptions."
+  },
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 3,
+   "diagnosed": true,
+   "diagnosis": false,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": false,
+   "category": "transient_or_resolved",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 11,
+   "replay_misses": 4,
+   "usage": {
+    "input": 43903,
+    "output": 3845,
+    "cache_read": 19956,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1954,
+   "seconds": 46.8,
+   "trace_id": "",
+   "summary": "Flink checkpoint failures were caused by a TaskExecutor shutdown ~2 minutes ago (chaos-mesh fault injection); the job has self-recovered and is completing checkpoints normally. No action needed."
+  },
+  {
+   "scenario": "zone-outage",
+   "run": 1,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "node_or_zone_failure",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 7,
+   "replay_misses": 1,
+   "usage": {
+    "input": 22135,
+    "output": 3407,
+    "cache_read": 13304,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1215,
+   "seconds": 38.3,
+   "trace_id": "",
+   "summary": "Node lakehouse-worker (zone-a) is unreachable, taking down Kafka broker lakehouse-dual-role-2 (60 under-replicated partitions), the Flink job manager, and the ingestion service pod on that node. Cluster still writes (0 under-min-ISR) but has zero fault-tolerance margin. Human intervention is needed to replace the node."
+  },
+  {
+   "scenario": "zone-outage",
+   "run": 2,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "node_or_zone_failure",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 6,
+   "replay_misses": 0,
+   "usage": {
+    "input": 15420,
+    "output": 2839,
+    "cache_read": 9978,
+    "cache_write": 0
+   },
+   "cost_usd": 0.0918,
+   "seconds": 31.6,
+   "trace_id": "",
+   "summary": "Node lakehouse-worker (zone-a) is unreachable, taking down Kafka broker lakehouse-dual-role-2 and the Flink JobManager with it. The cluster is degraded (60 under-replicated partitions, consumer lag 300) but still serving writes (min ISR still met). Manual node recovery or replacement is required."
+  },
+  {
+   "scenario": "zone-outage",
+   "run": 3,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "node_or_zone_failure",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 8,
+   "replay_misses": 1,
+   "usage": {
+    "input": 24429,
+    "output": 3744,
+    "cache_read": 13304,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1334,
+   "seconds": 44.2,
+   "trace_id": "",
+   "summary": "Node lakehouse-worker (zone-a) is unreachable, taking down Kafka broker lakehouse-dual-role-2, the Flink job manager, and one ingestion-service replica. 60 partitions are under-replicated; writes still flow (min ISR=2 met) but there is zero fault-tolerance margin. A chaos-mesh deployment ~160 min ago correlates precisely with the failure."
+  }
+ ]
+}

@@ -19,6 +19,7 @@ aws sts assume-role --role-arn "${ROLE_ARN}" --role-session-name "ops-agent-eval
   > "${ENV_FILE}"
 
 log "Eval: ${RUNS} run(s) per scenario -> evals/agent-scenarios/${OUT}"
+# No -w: the image finds ops_agent through its working directory (/opt/ai-ops); every path below is absolute.
 docker run --rm --env-file "${ENV_FILE}" -e AWS_REGION=us-east-1 \
-  -v "${REPO_ROOT}/evals:/evals" -w /evals \
+  -v "${REPO_ROOT}/evals:/evals" \
   lakehouse/ai-ops:dev eval --root /evals/agent-scenarios --runs "${RUNS}" --out "/evals/agent-scenarios/${OUT}" "${SCENARIOS[@]}"

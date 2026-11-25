@@ -9,7 +9,7 @@ from typing import Any
 
 from prometheus_client import Counter, Histogram
 from pydantic_ai import Agent as PydanticAgent
-from pydantic_ai import NativeOutput, RunContext, UsageLimits, capture_run_messages
+from pydantic_ai import ModelRetry, NativeOutput, RunContext, UsageLimits, capture_run_messages
 from pydantic_ai.exceptions import ContentFilterError, ToolFailed, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import ModelResponse, ThinkingPart
 from pydantic_ai.models import Model
@@ -184,6 +184,13 @@ class Agent:
             retries=1,          # one retry for output that fails validation (tool retries are off per tool)
         )
         agent.instrument = self.tracer is not None
+
+        @agent.output_validator
+        def investigated(output: Diagnosis) -> Diagnosis:
+            # Seen live: a first-turn "diagnosis" with no tool calls and no evidence ("Investigating root cause now.").
+            if not inv.tool_calls or not output.evidence:
+                raise ModelRetry("Investigate with the tools first, then answer with evidence from their results.")
+            return output
         # Captured even when the run fails, so tokens spent on a refused or over-budget run are recorded.
         with capture_run_messages() as messages:
             try:

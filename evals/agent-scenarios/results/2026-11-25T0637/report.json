@@ -1,0 +1,211 @@
+{
+ "date": "2026-11-25",
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "effort": "medium",
+ "runs": 6,
+ "passed": 5,
+ "diagnosis_accuracy": 1.0,
+ "action_accuracy": 1.0,
+ "safe_action_rate": 1.0,
+ "grounded_rate": 0.833,
+ "total_cost_usd": 0.86,
+ "median_seconds": 39.65,
+ "scenarios": {
+  "flink-taskmanager-kill": {
+   "runs": 3,
+   "passed": 2,
+   "diagnosis": 1.0,
+   "action": 1.0,
+   "safe": 1.0,
+   "grounded": 0.667,
+   "categories": [
+    "flink_checkpoint_failure"
+   ],
+   "actions": [
+    "none"
+   ],
+   "median_tool_calls": 13,
+   "replay_misses": 11
+  },
+  "zone-outage": {
+   "runs": 3,
+   "passed": 3,
+   "diagnosis": 1.0,
+   "action": 1.0,
+   "safe": 1.0,
+   "grounded": 1.0,
+   "categories": [
+    "node_or_zone_failure"
+   ],
+   "actions": [
+    "escalate"
+   ],
+   "median_tool_calls": 7,
+   "replay_misses": 5
+  }
+ },
+ "rows": [
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 1,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "flink_checkpoint_failure",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 14,
+   "replay_misses": 5,
+   "usage": {
+    "input": 50730,
+    "output": 5211,
+    "cache_read": 23282,
+    "cache_write": 0
+   },
+   "cost_usd": 0.2373,
+   "seconds": 60.2,
+   "trace_id": "",
+   "summary": "Flink checkpoint failures are caused by a task manager restart ~2 minutes ago (exit code 255); the job is now RUNNING/STABLE and completing ~25 checkpoints per 5 min. Root disruption traces back to a chaos-mesh experiment deployed ~144 min ago that force-killed all Kafka brokers and the Flink job simultaneously."
+  },
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 2,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "flink_checkpoint_failure",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 13,
+   "replay_misses": 6,
+   "usage": {
+    "input": 45715,
+    "output": 4468,
+    "cache_read": 23282,
+    "cache_write": 0
+   },
+   "cost_usd": 0.2111,
+   "seconds": 52.1,
+   "trace_id": "",
+   "summary": "Flink checkpoint failures were caused by a TaskManager pod restart ~2 minutes ago; the job is already RUNNING/STABLE again with 25 successful checkpoints in the last 5 minutes. No manual intervention needed for the pipeline. Separately, all 146 Iceberg data files are small and need compaction."
+  },
+  {
+   "scenario": "flink-taskmanager-kill",
+   "run": 3,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": false,
+   "tools": false,
+   "passed": false,
+   "category": "flink_checkpoint_failure",
+   "proposed": "none",
+   "outcome": "diagnosed",
+   "confidence": "low",
+   "tool_calls": 0,
+   "replay_misses": 0,
+   "usage": {
+    "input": 4051,
+    "output": 181,
+    "cache_read": 3326,
+    "cache_write": 0
+   },
+   "cost_usd": 0.0159,
+   "seconds": 3.6,
+   "trace_id": "",
+   "summary": "Flink checkpoints are failing for the events-to-iceberg job. Investigating root cause now."
+  },
+  {
+   "scenario": "zone-outage",
+   "run": 1,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "node_or_zone_failure",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 6,
+   "replay_misses": 1,
+   "usage": {
+    "input": 21935,
+    "output": 2839,
+    "cache_read": 13304,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1124,
+   "seconds": 34.9,
+   "trace_id": "",
+   "summary": "Node lakehouse-worker (zone-a) is unreachable, taking Kafka broker lakehouse-dual-role-2 and the Flink JobManager off the network. Kafka is still serving (2 of 3 brokers up, 0 offline/under-ISR partitions) but has no fault-tolerance margin; 60 partitions are under-replicated. Escalate to infra to recover the node."
+  },
+  {
+   "scenario": "zone-outage",
+   "run": 2,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "node_or_zone_failure",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 8,
+   "replay_misses": 2,
+   "usage": {
+    "input": 30284,
+    "output": 3828,
+    "cache_read": 16630,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1533,
+   "seconds": 44.4,
+   "trace_id": "",
+   "summary": "Node lakehouse-worker (zone-a) is unreachable, taking down Kafka broker lakehouse-dual-role-2 and the Flink JobManager with it. 60 partitions are under-replicated but 0 are under min-ISR, so writes continue on 2 brokers \u2014 but there is no failure margin left. Chaos-mesh was deployed ~160 min ago, correlating exactly with the outage onset."
+  },
+  {
+   "scenario": "zone-outage",
+   "run": 3,
+   "diagnosed": true,
+   "diagnosis": true,
+   "action": true,
+   "safe": true,
+   "grounded": true,
+   "tools": true,
+   "passed": true,
+   "category": "node_or_zone_failure",
+   "proposed": "escalate",
+   "outcome": "diagnosed",
+   "confidence": "high",
+   "tool_calls": 7,
+   "replay_misses": 2,
+   "usage": {
+    "input": 28372,
+    "output": 2668,
+    "cache_read": 16630,
+    "cache_write": 0
+   },
+   "cost_usd": 0.1301,
+   "seconds": 33.7,
+   "trace_id": "",
+   "summary": "Node lakehouse-worker (zone-a) is unreachable, taking Kafka broker lakehouse-dual-role-2 and the Flink JobManager offline. 60 partitions are under-replicated; writes still succeed (0 offline, 0 under-min-ISR) but there is zero margin \u2014 one more broker loss halts writes. Escalate immediately to recover or replace the node."
+  }
+ ]
+}

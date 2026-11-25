@@ -1,0 +1,76 @@
+{
+ "id": "e4ff9bbe-fa80-4cf5-b24e-5377f1fc88c3",
+ "trigger": {
+  "status": "firing",
+  "commonLabels": {
+   "alertname": "FlinkCheckpointFailures",
+   "severity": "warning"
+  },
+  "alerts": [
+   {
+    "status": "firing",
+    "labels": {
+     "alertname": "FlinkCheckpointFailures",
+     "component": "jobmanager",
+     "container": "flink-main-container",
+     "endpoint": "metrics",
+     "host": "10_244_1_5",
+     "instance": "10.244.1.5:9249",
+     "job": "apps/events-to-iceberg",
+     "job_id": "596d6e51d4da3222a8fc3de46ca90a03",
+     "job_name": "events_to_iceberg",
+     "namespace": "apps",
+     "pod": "events-to-iceberg-675465b97d-gpxtd",
+     "prometheus": "monitoring/kps-prometheus",
+     "severity": "warning"
+    },
+    "annotations": {
+     "description": "1.02 checkpoint(s) failed in the last 10 minutes.",
+     "runbook_url": "docs/runbooks/pipeline.md#flinkcheckpointfailures",
+     "summary": "Flink checkpoints are failing"
+    },
+    "startsAt": "2026-11-01T08:05:51.721Z"
+   }
+  ]
+ },
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "started_at": 1795588756.1691184,
+ "finished_at": 1795588759.739185,
+ "outcome": "diagnosed",
+ "diagnosis": {
+  "summary": "Flink checkpoints are failing for the events-to-iceberg job. Investigating root cause now.",
+  "root_cause_category": "flink_checkpoint_failure",
+  "root_cause": "Investigation in progress",
+  "confidence": "low",
+  "impact": "Unknown pending investigation",
+  "evidence": [],
+  "proposed_action": {
+   "action": "none",
+   "parameters": {
+    "namespace": "",
+    "pod": "",
+    "table": ""
+   },
+   "rationale": "Pending investigation"
+  },
+  "runbook": "docs/runbooks/pipeline.md#flinkcheckpointfailures",
+  "follow_ups": []
+ },
+ "tool_calls": [],
+ "turns": 1,
+ "usage": {
+  "input": 4051,
+  "output": 181,
+  "cache_read": 3326,
+  "cache_write": 0
+ },
+ "models_used": [
+  "claude-sonnet-4-6"
+ ],
+ "unsupported_evidence": [],
+ "reasoning_summaries": [
+  "Let me investigate the Flink checkpoint failures alert. I'll start by checking multiple things in parallel: the Flink job status, Kafka status, firing alerts, and recent changes."
+ ],
+ "trace_id": "",
+ "error": ""
+}

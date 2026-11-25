@@ -18,9 +18,12 @@ async def test_bedrock_request_shape():
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        body = {"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6",
-                "content": [{"type": "text", "text": diagnosis()}], "stop_reason": "end_turn",
-                "stop_sequence": None, "usage": {"input_tokens": 10, "output_tokens": 5}}
+        # The agent accepts a diagnosis only after a tool call: first a tool call, then the answer.
+        content, stop = (([{"type": "tool_use", "id": "t1", "name": "get_kafka_status", "input": {}}], "tool_use")
+                         if len(requests) == 1 else ([{"type": "text", "text": diagnosis()}], "end_turn"))
+        body = {"id": f"msg_{len(requests)}", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6",
+                "content": content, "stop_reason": stop, "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 5}}
         return httpx2.Response(200, json=body)
 
     client = AsyncAnthropicBedrock(aws_region="us-east-1", aws_access_key="test", aws_secret_key="test", max_retries=0,
@@ -29,7 +32,8 @@ async def test_bedrock_request_shape():
     inv = await Agent(config, build_model(config, client), FakeBackend()).investigate(TRIGGER)
     assert inv.outcome == "diagnosed", inv.error
 
-    (request,) = requests
+    assert len(requests) == 2
+    request = requests[0]
     assert request.url.host == "bedrock-runtime.us-east-1.amazonaws.com"
     assert request.url.path == "/model/us.anthropic.claude-sonnet-4-6/invoke"
     assert request.headers["authorization"].startswith("AWS4-HMAC-SHA256")

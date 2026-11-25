@@ -11,6 +11,8 @@ metadata:
   labels:
     {{- include "lakehouse.labels" $ctx | nindent 4 }}
   annotations:
+    # With the namespaces, before any workload: Kyverno must enforce (and pin digests) from the first pod.
+    argocd.argoproj.io/sync-wave: "-4"
     policies.kyverno.io/title: Verify platform image signatures
     policies.kyverno.io/description: >-
       Pods in the platform namespaces may run images from the platform's ECR repositories only if

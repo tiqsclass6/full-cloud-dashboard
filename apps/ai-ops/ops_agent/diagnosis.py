@@ -27,7 +27,8 @@ ActionName = Literal[tuple(ACTIONS)]  # type: ignore[valid-type]
 
 
 class Evidence(BaseModel):
-    tool: str = Field(description="The tool whose result supports this finding")
+    # ops-control refuses a proposal whose evidence names a tool that was not called, so the name must be exact.
+    tool: str = Field(description="The exact name of a tool you called, e.g. get_pods; no arguments (put those in finding)")
     finding: str = Field(description="What the result showed, with the numbers")
 
 

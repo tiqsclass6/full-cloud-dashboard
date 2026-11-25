@@ -15,10 +15,10 @@ def _csv(name: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class AgentConfig:
-    # Claude in Amazon Bedrock (Messages API on bedrock-mantle); model IDs carry the anthropic. prefix.
-    model: str = "anthropic.claude-sonnet-4-6"
+    # Claude in Amazon Bedrock (InvokeModel) through the US cross-region inference profiles.
+    model: str = "us.anthropic.claude-sonnet-4-6"
     # Used only if the primary model declines a request (stop_reason "refusal").
-    fallback_model: str = "anthropic.claude-opus-5-5"
+    fallback_model: str = "us.anthropic.claude-opus-5-5"
     aws_region: str = "us-east-1"
     effort: str = "medium"
     max_tokens: int = 16_000

@@ -70,11 +70,10 @@ final class TableMetrics {
     private AtomicReference<Double> property(String key) {
         return properties.computeIfAbsent(key, k -> {
             AtomicReference<Double> ref = new AtomicReference<>(Double.NaN);
-            Objects.requireNonNull(registry, "registry");
-            Gauge.builder("iceberg.table.snapshot.property", ref, AtomicReference::get)
-                    .tags(Objects.requireNonNull(tags, "tags").and("property", k))
+            Gauge.builder("iceberg.table.snapshot.property", ref, r -> r.get())
+                    .tags(Objects.requireNonNull(tags, "tags").and("property", Objects.requireNonNull(k)))
                     .description("A numeric lakehouse.* key of the current snapshot summary, written by a job")
-                    .register(registry);
+                    .register(Objects.requireNonNull(registry, "registry"));
             return ref;
         });
     }

@@ -123,7 +123,7 @@ def user_message(trigger: dict[str, Any]) -> str:
 
 
 def build_model(config: AgentConfig, client: Any) -> Model:
-    """Claude through the Anthropic SDK client (Bedrock Mantle in production)."""
+    """Claude through the Anthropic SDK client (Bedrock InvokeModel in production)."""
     from pydantic_ai.models.anthropic import AnthropicModel
     from pydantic_ai.providers.anthropic import AnthropicProvider
 

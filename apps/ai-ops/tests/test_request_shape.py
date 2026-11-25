@@ -3,7 +3,7 @@ import json
 
 import httpx2
 import pytest
-from anthropic import AsyncAnthropicBedrockMantle
+from anthropic import AsyncAnthropicBedrock
 
 from helpers import FakeBackend, diagnosis
 from ops_agent.agent import Agent, build_model
@@ -18,22 +18,23 @@ async def test_bedrock_request_shape():
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        body = {"id": "msg_1", "type": "message", "role": "assistant", "model": "anthropic.claude-sonnet-4-6",
+        body = {"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6",
                 "content": [{"type": "text", "text": diagnosis()}], "stop_reason": "end_turn",
                 "stop_sequence": None, "usage": {"input_tokens": 10, "output_tokens": 5}}
         return httpx2.Response(200, json=body)
 
-    client = AsyncAnthropicBedrockMantle(aws_region="us-east-1", skip_auth=True, max_retries=0,
-                                         http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
+    client = AsyncAnthropicBedrock(aws_region="us-east-1", aws_access_key="test", aws_secret_key="test", max_retries=0,
+                                   http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
     config = AgentConfig()
     inv = await Agent(config, build_model(config, client), FakeBackend()).investigate(TRIGGER)
     assert inv.outcome == "diagnosed", inv.error
 
     (request,) = requests
-    assert request.url.host == "bedrock-mantle.us-east-1.api.aws"
-    assert request.url.path == "/anthropic/v1/messages"
+    assert request.url.host == "bedrock-runtime.us-east-1.amazonaws.com"
+    assert request.url.path == "/model/us.anthropic.claude-sonnet-4-6/invoke"
+    assert request.headers["authorization"].startswith("AWS4-HMAC-SHA256")
     body = json.loads(request.content)
-    assert body["model"] == "anthropic.claude-sonnet-4-6"
+    assert body["anthropic_version"] == "bedrock-2023-05-31" and "model" not in body
     assert body["tool_choice"]["type"] == "auto"
     assert body["output_config"]["effort"] == "medium"
     assert body["output_config"]["format"]["type"] == "json_schema"

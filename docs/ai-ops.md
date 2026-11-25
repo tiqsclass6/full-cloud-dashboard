@@ -28,12 +28,12 @@ RBAC cannot limit `create` by name, so ops-control could otherwise start any Spa
 
 **AWS identities.** Each one is limited to what that workload calls:
 
-| **Identity**                 | **May do**                                                                                                |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **ops-agent** (IRSA)         | Claude Sonnet 4.6 and Opus 5.5 through `bedrock-mantle`; invoke this environment's AgentCore Runtime      |
-| **hermes** (IRSA)            | Sonnet 4.6 through the US inference profile only                                                          |
-| **AgentCore Gateway** (role) | The CA secret; the platform key through AgentCore and Secrets Manager only; its own API-key provider      |
-| **AgentCore Runtime** (role) | The models through `bedrock-mantle`; its image; the key through ECR only; its own log groups; the Gateway |
+| **Identity**                 | **May do**                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **ops-agent** (IRSA)         | Claude Sonnet 4.6 and Opus 5.5 through the US inference profiles; invoke this environment's AgentCore Runtime      |
+| **hermes** (IRSA)            | Sonnet 4.6 through the US inference profile only                                                                   |
+| **AgentCore Gateway** (role) | The CA secret; the platform key through AgentCore and Secrets Manager only; its own API-key provider               |
+| **AgentCore Runtime** (role) | The models through the US inference profiles; its image; the key through ECR only; its own log groups; the Gateway |
 
 The IRSA roles trust one service account each; the AgentCore roles trust only this environment's Gateway or Runtime (`aws:SourceArn`). On kind, ops-agent and Hermes still share one role (`terraform/bootstrap/ai-ops.tf`) with one-hour credentials.
 
@@ -72,14 +72,14 @@ The IRSA roles trust one service account each; the AgentCore roles trust only th
 
 ## **Frameworks**
 
-| **Framework**              | **Used for**                                                                                                                                                                                                         |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Pydantic / Pydantic AI** | The agent: a Pydantic AI `Agent` whose output type is the `Diagnosis` Pydantic model (native structured output, validated, one retry), tools from a custom toolset that records every call, usage limits             |
-| **pydantic-evals**         | The eval suite: a `Dataset` of recorded incidents with deterministic `Evaluator`s (diagnosed, diagnosis, action, safe, grounded, tools)                                                                              |
-| **Langfuse**               | Tracing: one trace per investigation with Pydantic AI's model and tool spans nested inside (tokens, cost, latency); eval scores attached to the traces. Self-hosted, so prompts and tool results stay in the cluster |
-| **Hermes Agent**           | The interactive assistant: `kubectl -n ai-ops exec -it deploy/hermes -- hermes chat`. Learns skills and keeps memory (memory writes need approval); everything that could act is disabled                            |
-| **MCP**                    | The tool interface for both agents (Streamable HTTP, bearer token): the same 13 read-only tools                                                                                                                      |
-| **Anthropic SDK**          | The Bedrock client (Messages API on `bedrock-mantle`) under Pydantic AI, with the client-side refusal fallback to Claude Opus 5.5                                                                                    |
+| **Framework**              | **Used for**                                                                                                                                                                                                               |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Pydantic / Pydantic AI** | The agent: a Pydantic AI `Agent` whose output type is the `Diagnosis` Pydantic model (native structured output, validated, one retry), tools from a custom toolset that records every call, usage limits                   |
+| **pydantic-evals**         | The eval suite: a `Dataset` of recorded incidents with deterministic `Evaluator`s (diagnosed, diagnosis, action, safe, grounded, tools)                                                                                    |
+| **Langfuse**               | Tracing: one trace per investigation with Pydantic AI's model and tool spans nested inside (tokens, cost, latency); eval scores attached to the traces. Self-hosted, so prompts and tool results stay in the cluster       |
+| **Hermes Agent**           | The interactive assistant: `kubectl -n ai-ops exec -it deploy/hermes -- hermes chat`. Learns skills and keeps memory (memory writes need approval); everything that could act is disabled                                  |
+| **MCP**                    | The tool interface for both agents (Streamable HTTP, bearer token): the same 13 read-only tools                                                                                                                            |
+| **Anthropic SDK**          | The Bedrock client (InvokeModel through the US inference profiles, [**ADR 0014**](architecture-decisions/0014-claude-through-invoke-model.md)) under Pydantic AI, with the client-side refusal fallback to Claude Opus 5.5 |
 
 ## **Using it (kind)**
 
@@ -166,7 +166,7 @@ Alertmanager -> ops-agent (EKS, IRSA) --InvokeAgentRuntime--> the agent on Agent
 | **Where** | **Check**                                                                        | **Result**                                                                                                                                                                                                                                             |
 | --------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **kind**  | Unit tests (tool server, agent on Pydantic AI, approvals, evals, AgentCore path) | 47 + 69 pass (2026-11-13), inside the images built from the locked dependencies; the 69 include the store against a real Postgres 17                                                                                                                   |
-| **kind**  | The exact request to Bedrock (captured at the HTTP layer)                        | `anthropic.claude-sonnet-4-6` on bedrock-mantle; `tool_choice` auto; JSON-schema output; effort `medium`; adaptive thinking; cache breakpoints on tools and system                                                                                     |
+| **kind**  | The exact request to Bedrock (captured at the HTTP layer)                        | `us.anthropic.claude-sonnet-4-6` through InvokeModel (bedrock-mantle until 2026-11-25); `tool_choice` auto; JSON-schema output; effort `medium`; adaptive thinking; cache breakpoints on tools and system                                              |
 | **kind**  | Guardrails (`make ai-ops-test`)                                                  | 37 of 37 (again on 2026-11-13): RBAC per service account, no token in ops-agent, token auth, network policy, a real approved restart executed once with the full audit trail                                                                           |
 | **kind**  | Langfuse                                                                         | One investigation traced: agent run, 2 model generations, 2 tool calls with live results                                                                                                                                                               |
 | **kind**  | Hermes Agent                                                                     | Connects to the MCP server (MCP 1.30 client, 2.3 server), 13 tools; 7 built-in tools left (memory, skills, todo, session search, clarify), none that act                                                                                               |
@@ -189,6 +189,23 @@ What the AWS run found and fixed:
 - **EKS recreated its log group after the teardown:** `/aws/eks/lakehouse-dev/cluster` (no retention, empty) was back after `terraform destroy`, and the next `aws-apply` failed with `ResourceAlreadyExistsException`. Terraform cannot remove it, because EKS recreates it after Terraform has deleted the one it manages. `aws-down.sh` now deletes this environment's EKS and AgentCore Runtime log groups once the cluster is gone, and its leftover check reports any that remain. Not yet exercised by a full teardown.
 - **The teardown left Loki's and Tempo's volumes** (20 GiB each): `aws-down.sh` did not delete the `observability` namespace, added in Phase 8, which had only run on kind. Fixed; the two volumes were deleted by hand.
 
+## **First live investigations on kind (2026-11-25)**
+
+The first runs with a model, after the account's agreement for Claude Sonnet 4.6 became available ([**ADR 0014**](architecture-decisions/0014-claude-through-invoke-model.md)). Each was an `IcebergCompactionOverdue` alert for `lakehouse.events`, sent to ops-agent's webhook; the tools, the model and Slack were real. Single runs of one alert.
+
+| **Run**                     | **Result**                                                                                                                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. Compaction overdue**   | Diagnosed in 4 turns, 41.5 s (22,704 input tokens, 10,005 from the cache; 1,749 output): 126 hours without compaction, 20 small files, the right runbook. Proposed `run_iceberg_compaction`, refused by ops-control (below) |
+| **2. The same alert**       | Diagnosed in 3 turns, 19.8 s; the same action, accepted and posted to Slack; approved there, the Spark compaction completed (data files 20 to 14, last compaction at 06:09:52 UTC)                                          |
+| **3. After the compaction** | Diagnosed in 3 turns, 22.7 s: compaction finished 5 minutes earlier, action `none`, no proposal                                                                                                                             |
+| **Kind role**               | The new policy (InvokeModel through the profiles) applied to `terraform/bootstrap`; run 3 used it; a re-plan shows no changes                                                                                               |
+
+What went wrong:
+
+- **Mantle does not serve Sonnet 4.6 in this account** (404, "the model does not exist"); the agent moved to InvokeModel ([**ADR 0014**](architecture-decisions/0014-claude-through-invoke-model.md)).
+- **The first call was rejected as an expired token** (401): `ai-creds.sh` had refreshed the Secret, but its restart of ops-agent failed silently (`|| true`), so the pod kept credentials from two days earlier. The script now stops with an error.
+- **The first proposal was refused by the evidence check.** The model cited `get_pods (label_selector: spark-role=driver)` as the tool; ops-control requires the exact name of a called tool, so it refused. The check stays strict; the field's description in the output schema now asks for the exact name, and the next two runs used exact names.
+
 ## **Slack approvals on kind (2026-11-25)**
 
 A single run against a real Slack app (Socket Mode, a private channel, one approver), with synthetic investigations sent to ops-control. Each one proposed `restart_pod` for the iceberg-exporter pod; the model was not involved.
@@ -208,8 +225,10 @@ What went wrong:
 
 ## **Not verified**
 
-- **Anything the model does.** The account has no access to the Claude models in Amazon Bedrock (`agreementAvailability: NOT_AVAILABLE`, even for models open to all accounts), so no diagnosis has been produced and the eval suite has no results yet. Every piece around the model is verified; enabling access is an account step in the Bedrock console.
-- **Whether the role is limited to the two models.** With access blocked, every model returns the same error, so the model-scoped IAM policy could not be tested.
+- **The agent beyond one alert.** Three live runs of `IcebergCompactionOverdue` on kind; `make ai-eval` (the recorded scenarios) has not run yet, and no other alert has had a live diagnosis.
+- **The refusal fallback.** Opus 5.5 is not available to the account (403 "not available for this account"), so a refusal ends without a diagnosis.
+- **The agent on AWS.** The IRSA and AgentCore Runtime policies now allow InvokeModel through the profiles ([**ADR 0014**](architecture-decisions/0014-claude-through-invoke-model.md)); no AWS run has used them yet.
+- **Whether the role is limited to the two models.** Only Sonnet 4.6 is available to the account, so a call to another model fails on the agreement before IAM would matter.
 - **The tightened AgentCore and Hermes policies (2026-11-14) on AWS.** The Gateway's API-key scope, the Runtime's `kms:ViaService` condition, the Runtime's log-group scope and the inference-profile-only condition follow AWS's documented ARNs and condition keys and pass IAM Access Analyzer, but no AWS run has used them yet. The next run's Gateway creation, target setup, Runtime selftest and Hermes's tool list exercise them; an AccessDenied there points to one of these statements. The Gateway's `kms:ViaService` condition was tried on 2026-11-24 and removed: AgentCore calls KMS itself with the role, so the condition never matches ([**aws.md**](aws.md#fourth-run-2026-11-24-dev-data-integrity-on-eks)); the Gateway was then created, but no target was set up.
 - **The kind role's policy had drifted from the code.** The 2026-11-02 model switch to Sonnet 4.6 was never applied to `terraform/bootstrap`, so until 2026-11-14 the role allowed Sonnet 5.5 instead of the model the agent uses. Applied on 2026-11-14 (one policy updated in place; a re-plan shows no changes). With model access blocked, no call has used it yet.
 - **Slack beyond one approver on kind.** A click by someone not on the approver list, two-person approval, a proposal expiring in Slack, Slack's periodic reconnects over hours, and Slack on AWS (`aws-ai-secrets.sh` creates the same Secret from `local/secrets/slack.env`) are covered by unit tests or not at all. The diagnosis text in the messages came from synthetic investigations, not the model.

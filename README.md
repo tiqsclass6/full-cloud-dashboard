@@ -93,7 +93,7 @@ How the requirements of a senior staff data-platform role map to this repository
 
 | **Requirement**                                | **Where**                                                                                                                          | **Evidence**                                                                                                                 |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Distributed systems design**                 | [**ADRs 0001-0013**](docs/architecture-decisions/), [**architecture**](docs/diagrams/README.md)                                    | Each decision with its alternatives and consequences; failure modes tested by chaos experiments                              |
+| **Distributed systems design**                 | [**ADRs 0001-0014**](docs/architecture-decisions/), [**architecture**](docs/diagrams/README.md)                                    | Each decision with its alternatives and consequences; failure modes tested by chaos experiments                              |
 | **Java, JVM internals, GC, profiling**         | [**`apps/ingestion-service`**](apps/ingestion-service/README.md), [**`apps/flink-iceberg-job`**](apps/flink-iceberg-job/README.md) | JFR profiles, G1 vs generational ZGC, an allocation hot spot found and removed ([**perf**](docs/performance/README.md))      |
 | **Concurrency, networking, OS**                | Ingestion service: virtual threads, bounded in-flight work (429), JDK HTTP server; open-loop load generator                        | Latency measured from intended send time; [**ADR 0003**](docs/architecture-decisions/0003-ingestion-service-design.md)       |
 | **Kafka at scale, HA**                         | [**`helm/charts/kafka-cluster`**](helm/charts/kafka-cluster): Strimzi, KRaft, 3 zones, RF=3, min ISR 2, rack awareness             | Broker isolation and zone outage without data loss ([**chaos**](docs/chaos/README.md))                                       |
@@ -191,7 +191,7 @@ full-cloud-dashboard-project/
 │   └── spark-jobs/               # PySpark: Iceberg maintenance and hourly aggregates
 ├── chaos/experiments/            # Chaos Mesh faults: broker isolation, latency, pod kill
 ├── docs/                         # Documentation (index.md)
-│   ├── architecture-decisions/   # ADRs 0001-0013
+│   ├── architecture-decisions/   # ADRs 0001-0014
 │   ├── chaos/                    # Chaos experiment results
 │   ├── diagrams/                 # Architecture diagrams and workflow infographics
 │   ├── lab/                      # Lab runbook (RUNBOOK.md) and screenshots (images/)
@@ -484,7 +484,7 @@ If the agent's AgentCore Runtime was created, AWS can take up to 8 hours to rele
 
 - **Storage pressure stalled Flink.** A 3-second checkpoint interval with full-state snapshots filled the local S3 stand-in; Flink stalled with 500,000 events waiting, then drained them exactly once when storage was fixed ([**spark-iceberg.md**](docs/spark-iceberg.md#what-went-wrong-and-what-it-taught)).
 - **Recovery without HA duplicated data.** A failed job without Flink HA restarted from an old savepoint and wrote 500,000 duplicate rows; HA is now required by the chart ([**ADR 0004**](docs/architecture-decisions/0004-flink-to-iceberg-pipeline.md)).
-- **The model was not available.** The AWS account has no Bedrock access to Claude, so everything around the agent was verified without a single live diagnosis.
+- **The model was not available for most of the build.** The AWS account had no Bedrock access to Claude, so everything around the agent was verified first. The first live diagnosis came on kind on 2026-11-25, through InvokeModel, because the endpoint the agent was built for does not serve the model ([**ai-ops.md**](docs/ai-ops.md#first-live-investigations-on-kind-2026-11-25)).
 - **Windows got in the way.** Windows reserved port ranges, the Docker VM clock drifted (Kafka re-elected its controller about 190 times an hour), and `jq.exe` line endings broke scripts.
 - **Upstream bugs.** A Flink metrics bug (FLINK-35321) logged a warning on every checkpoint and is not fixed in any release yet; the job's log configuration filters that one message.
 - **Each AWS run found something new.** IAM for the AgentCore Gateway, a credential prefix with two spaces, an MCP server that crashed only with TLS on ([**aws.md**](docs/aws.md), [**ai-ops.md**](docs/ai-ops.md)).

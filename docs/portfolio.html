@@ -383,7 +383,7 @@ footer { border-top: 1px solid var(--line); padding-top: 20px; font-size: 0.85re
       <div><h3>Struggles</h3><ul>
         <li>A 3-second checkpoint interval filled the local S3 stand-in and stalled Flink; it drained 500,000 waiting events exactly once afterwards.</li>
         <li>Recovery without Flink HA restored an old savepoint and wrote 500,000 duplicate rows; HA is now required.</li>
-        <li>No Bedrock access to Claude, so no live diagnosis yet.</li>
+        <li>No Bedrock access to Claude for most of the build; the first live diagnosis came on 2026-11-25, through InvokeModel instead of the endpoint the agent was built for.</li>
         <li>Windows reserved ports and a drifting Docker VM clock; an unfixed Flink metrics bug (FLINK-35321).</li>
       </ul></div>
       <div><h3>Saving money</h3><ul>

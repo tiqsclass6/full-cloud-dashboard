@@ -11,19 +11,28 @@ locals {
   agentcore_gateway_arns = "${local.agentcore_arn}:gateway/${local.agentcore_gateway_name}-*"
   # The API-key provider aws-agentcore.sh creates for the Gateway target (named after the cluster).
   agentcore_api_key_provider = "${local.agentcore_arn}:token-vault/default/apikeycredentialprovider/${local.name}-mcp-token"
-  hermes_profile_arn         = "arn:${local.partition}:bedrock:${var.region}:${local.account_id}:inference-profile/us.${local.ops_agent_models[0]}"
+  # The agent (InvokeModel) and Hermes call the models through the US cross-region inference profiles.
+  ops_agent_profile_arns = [for m in local.ops_agent_models : "arn:${local.partition}:bedrock:${var.region}:${local.account_id}:inference-profile/us.${m}"]
+  hermes_profile_arn     = local.ops_agent_profile_arns[0]
   # Runtime is offered in a subset of zone IDs, which are stable across accounts; zone names are not.
   agentcore_subnets = [for s in data.aws_subnet.private : s.id if contains(var.agentcore_az_ids, s.availability_zone_id)]
 }
 
 data "aws_iam_policy_document" "ops_agent_models" {
   statement {
-    sid     = "MessagesApiOnBedrockMantle"
-    actions = ["bedrock-mantle:CreateInference"]
-    resources = concat(
-      [for m in local.ops_agent_models : "arn:${local.partition}:bedrock:${var.region}::foundation-model/${m}"],
-      ["arn:${local.partition}:bedrock-mantle:${var.region}:${local.account_id}:project/*"],
-    )
+    sid       = "InferenceProfiles"
+    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = local.ops_agent_profile_arns
+  }
+  statement {
+    sid       = "ModelsThroughProfilesOnly"
+    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = [for m in local.ops_agent_models : "arn:${local.partition}:bedrock:us-*::foundation-model/${m}"]
+    condition {
+      test     = "StringEquals"
+      variable = "bedrock:InferenceProfileArn"
+      values   = local.ops_agent_profile_arns
+    }
   }
 }
 
@@ -282,8 +291,8 @@ resource "aws_bedrockagentcore_agent_runtime" "ops_agent" {
   environment_variables = {
     OPS_AGENT_MODE    = "runtime"
     AWS_REGION        = var.region
-    MODEL_ID          = local.ops_agent_models[0]
-    FALLBACK_MODEL_ID = local.ops_agent_models[1]
+    MODEL_ID          = "us.${local.ops_agent_models[0]}"
+    FALLBACK_MODEL_ID = "us.${local.ops_agent_models[1]}"
     GATEWAY_URL       = "${aws_bedrockagentcore_gateway.ops_tools.gateway_url}"
   }
   depends_on = [aws_iam_role_policy.agentcore_runtime]

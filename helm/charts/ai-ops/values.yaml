@@ -10,8 +10,8 @@ mcpImage:
 
 # Claude in Amazon Bedrock. The fallback model answers only if the primary model declines a request.
 model:
-  id: anthropic.claude-sonnet-4-6
-  fallbackId: anthropic.claude-opus-5-5
+  id: us.anthropic.claude-sonnet-4-6          # US cross-region inference profiles (InvokeModel)
+  fallbackId: us.anthropic.claude-opus-5-5
   region: us-east-1
   effort: medium
 

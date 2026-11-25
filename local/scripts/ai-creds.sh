@@ -23,4 +23,10 @@ kc -n ai-ops create secret generic bedrock-credentials --from-env-file="${TMP}" 
 kc -n ai-ops annotate secret bedrock-credentials --overwrite lakehouse.io/expires="${EXPIRES}" >/dev/null
 ok "bedrock-credentials valid until ${EXPIRES}"
 
-kc -n ai-ops rollout restart deployment/ops-agent >/dev/null 2>&1 && ok "ops-agent restarted" || true
+# Without the restart the pod keeps its old credentials (the model then answers 401 "token expired").
+if kc -n ai-ops rollout restart deployment/ops-agent >/dev/null 2>&1; then
+  ok "ops-agent restarted"
+else
+  echo "could not restart ops-agent; run: kubectl --context ${KUBE_CONTEXT} -n ai-ops rollout restart deployment/ops-agent" >&2
+  exit 1
+fi

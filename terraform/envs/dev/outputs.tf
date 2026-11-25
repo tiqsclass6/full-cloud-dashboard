@@ -66,7 +66,7 @@ output "iceberg_exporter_role_arn" {
 }
 
 output "ops_agent_role_arn" {
-  description = "IRSA role of ops-agent (Claude through Mantle, InvokeAgentRuntime)."
+  description = "IRSA role of ops-agent (Claude through InvokeModel, InvokeAgentRuntime)."
   value       = aws_iam_role.irsa["ops-agent"].arn
 }
 

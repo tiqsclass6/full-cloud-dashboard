@@ -3,8 +3,9 @@
 data "aws_partition" "current" {}
 
 locals {
-  ops_agent_models   = ["anthropic.claude-sonnet-4-6", "anthropic.claude-opus-5-5"]
-  hermes_profile_arn = "arn:${data.aws_partition.current.partition}:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/us.${local.ops_agent_models[0]}"
+  ops_agent_models = ["anthropic.claude-sonnet-4-6", "anthropic.claude-opus-5-5"]
+  # The agent and Hermes call the models through the US cross-region inference profiles (InvokeModel).
+  ops_agent_profile_arns = [for m in local.ops_agent_models : "arn:${data.aws_partition.current.partition}:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/us.${m}"]
 }
 
 data "aws_iam_policy_document" "ops_agent_local_trust" {
@@ -25,29 +26,20 @@ resource "aws_iam_role" "ops_agent_local" {
 }
 
 data "aws_iam_policy_document" "ops_agent_models" {
-  # Claude on Bedrock (bedrock-mantle) authorizes CreateInference; resource scoping is not documented yet (docs/ai-ops.md).
   statement {
-    sid     = "InvokeAgentModels"
-    actions = ["bedrock-mantle:CreateInference"]
-    resources = concat(
-      [for m in local.ops_agent_models : "arn:${data.aws_partition.current.partition}:bedrock:${var.aws_region}::foundation-model/${m}"],
-      ["arn:${data.aws_partition.current.partition}:bedrock-mantle:${var.aws_region}:${data.aws_caller_identity.current.account_id}:project/*"],
-    )
-  }
-  # Hermes uses the US cross-region inference profile; the model in the routed regions only through that profile.
-  statement {
-    sid       = "ConverseForHermes"
+    sid       = "InferenceProfiles"
     actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-    resources = [local.hermes_profile_arn]
+    resources = local.ops_agent_profile_arns
   }
+  # The models in the routed regions, only through those profiles.
   statement {
-    sid       = "ModelThroughProfileOnly"
+    sid       = "ModelsThroughProfilesOnly"
     actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-    resources = ["arn:${data.aws_partition.current.partition}:bedrock:us-*::foundation-model/${local.ops_agent_models[0]}"]
+    resources = [for m in local.ops_agent_models : "arn:${data.aws_partition.current.partition}:bedrock:us-*::foundation-model/${m}"]
     condition {
       test     = "StringEquals"
       variable = "bedrock:InferenceProfileArn"
-      values   = [local.hermes_profile_arn]
+      values   = local.ops_agent_profile_arns
     }
   }
 }

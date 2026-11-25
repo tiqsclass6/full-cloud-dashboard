@@ -18,7 +18,7 @@ Phase 8 gave every alert a runbook, but a person still has to open the dashboard
    - Approvers are a list of Slack user IDs. In the terminal, the approver is whoever may `kubectl exec` into ops-control. Two-person approval is a setting.
    - An approval issues a signed execution token (HMAC-SHA256, 60 seconds) bound to the proposal, action and parameter hash. The executor accepts it only once (compare-and-set from `approved` to `executing`) and re-checks the hash against the stored parameters.
 3. **Claude Sonnet 4.6 in Amazon Bedrock, with Claude Opus 5.5 as the refusal fallback.**
-   - The Anthropic SDK's Bedrock client calls the Messages API on the `bedrock-mantle` endpoint. Bedrock has no server-side fallback, so the SDK's client-side middleware retries a declined request on Opus 5.5.
+   - The Anthropic SDK's Bedrock client calls the Messages API on the `bedrock-mantle` endpoint (since 2026-11-25 InvokeModel through the US inference profiles: [**ADR 0014**](0014-claude-through-invoke-model.md)). Bedrock has no server-side fallback, so the SDK's client-side middleware retries a declined request on Opus 5.5.
    - Effort `medium` (the recommended start for multistep tool use), adaptive thinking with summaries kept for the audit record, and the system prompt cached.
    - On kind the agent uses one-hour credentials for a role that may invoke only these two models; on EKS it uses IRSA. Hermes has its own IRSA role on EKS, limited to Sonnet 4.6 through the US inference profile.
 4. **A hand-written tool loop, not the SDK's tool runner.** Every step is a guardrail:

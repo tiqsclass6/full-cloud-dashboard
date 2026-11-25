@@ -98,7 +98,7 @@ public final class ReplayTool {
         Set<Long> stored = offsets(events, partition, first, last, null);
         Map<Long, String> skippedReasons = new HashMap<>();
         offsets(skipped, partition, first, last, skippedReasons);
-        long since = kafka.values().stream().mapToLong(ConsumerRecord::timestamp).min().orElse(0);
+        long since = kafka.values().stream().mapToLong(r -> r.timestamp()).min().orElse(0);
         Set<String> replayed = markers(events, since);
 
         Map<Long, GenericRecord> decoded = new HashMap<>();
@@ -170,7 +170,7 @@ public final class ReplayTool {
         List<Map<String, Object>> toSend = new ArrayList<>();
         for (Replay.Facts f : facts) {
             Replay.Decision d = decide.apply(f);
-            outcomes.merge(d.outcome().name(), 1, Integer::sum);
+            outcomes.merge(d.outcome().name(), 1, (a, b) -> a + b);
             Map<String, Object> line = new LinkedHashMap<>();
             line.put("partition", f.partition());
             line.put("offset", f.offset());

@@ -42,7 +42,11 @@ async def test_bedrock_request_shape():
     assert body["tool_choice"]["type"] == "auto"
     assert body["output_config"]["effort"] == "medium"
     assert body["output_config"]["format"]["type"] == "json_schema"
-    assert body["output_config"]["format"]["schema"]["properties"]["proposed_action"]
+    schema = body["output_config"]["format"]["schema"]
+    assert schema["properties"]["proposed_action"]
+    # Evidence can name only the tools the backend offers.
+    assert sorted(schema["$defs"]["Evidence"]["properties"]["tool"]["enum"]) == ["get_kafka_status", "get_nodes",
+                                                                                 "search_runbooks"]
     assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert "cache_control" in body["tools"][-1]
     assert any("cache_control" in block for block in body["system"])

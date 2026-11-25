@@ -20,7 +20,7 @@ from pydantic_core import SchemaValidator, core_schema
 
 from ops_agent.backends import ToolBackend
 from ops_agent.config import AgentConfig
-from ops_agent.diagnosis import Diagnosis
+from ops_agent.diagnosis import Diagnosis, for_tools
 from ops_agent.prompts import SYSTEM_PROMPT
 
 INVESTIGATIONS = Counter("ops_agent_investigations_total", "Investigations by outcome", ["outcome"])
@@ -80,13 +80,17 @@ class BackendToolset(AbstractToolset[None]):
     def id(self) -> str:
         return "platform"
 
-    async def get_tools(self, ctx: RunContext[None]) -> dict[str, ToolsetTool[None]]:
+    async def tool_names(self) -> tuple[str, ...]:
         if self._defs is None:
             self._defs = [ToolDefinition(name=t["name"], description=t["description"],
                                          parameters_json_schema=t["input_schema"])
                           for t in await self.backend.list_tools()]
+        return tuple(d.name for d in self._defs)
+
+    async def get_tools(self, ctx: RunContext[None]) -> dict[str, ToolsetTool[None]]:
+        await self.tool_names()
         return {d.name: ToolsetTool(toolset=self, tool_def=d, max_retries=0, args_validator=_ANY_ARGS)
-                for d in self._defs}
+                for d in self._defs or []}
 
     async def call_tool(self, name: str, tool_args: dict[str, Any], ctx: RunContext[None],
                         tool: ToolsetTool[None]) -> str:
@@ -175,11 +179,14 @@ class Agent:
 
     async def _run(self, inv: Investigation) -> None:
         cfg = self.config
+        toolset = BackendToolset(self.backend, inv, cfg.max_tool_calls)
+        # Evidence may name only the tools this run has: seen live, "get_events (apps)" instead of get_events.
+        output = for_tools(await toolset.tool_names())
         agent = PydanticAgent(
             self.model,
-            output_type=NativeOutput(Diagnosis, name="diagnosis"),
+            output_type=NativeOutput(output, name="diagnosis"),
             instructions=SYSTEM_PROMPT,
-            toolsets=[BackendToolset(self.backend, inv, cfg.max_tool_calls)],
+            toolsets=[toolset],
             model_settings=model_settings(cfg),
             retries=1,          # one retry for output that fails validation (tool retries are off per tool)
         )

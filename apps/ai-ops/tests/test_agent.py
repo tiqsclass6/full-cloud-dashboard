@@ -106,6 +106,15 @@ async def test_an_answer_before_any_tool_call_is_sent_back_once():
 
 
 @pytest.mark.anyio
+async def test_evidence_naming_a_tool_with_arguments_is_sent_back():
+    model, calls = scripted([ToolCallPart("get_nodes", {}, "a")], answer(evidence_tool="get_nodes (all)"),
+                            answer(evidence_tool="get_nodes"))
+    inv = await Agent(AgentConfig(), model, FakeBackend()).investigate(TRIGGER)
+    assert inv.outcome == "diagnosed" and inv.unsupported_evidence == []
+    assert any(isinstance(p, RetryPromptPart) for p in calls[2][0][-1].parts)
+
+
+@pytest.mark.anyio
 async def test_a_diagnosis_without_investigating_is_not_accepted():
     model, _ = scripted(answer(), answer())
     inv = await Agent(AgentConfig(), model, FakeBackend()).investigate(TRIGGER)
